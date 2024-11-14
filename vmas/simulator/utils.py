@@ -328,7 +328,7 @@ class ScenarioUtils:
                 )
     
             # Calculate the x-coordinate within 1/5 of the left border
-            x_pos = x_bounds[0] + (x_bounds[1] - x_bounds[0]) * 0.05
+            x_pos = x_bounds[0] + (x_bounds[1] - x_bounds[0]) * 0.00
     
             # Calculate the total height required for all entities
             total_height = (len(entities) - 1) * min_dist_between_entities
@@ -342,6 +342,57 @@ class ScenarioUtils:
                 pos = pos.expand(batch_size, -1, -1)  # Ensure pos has the correct batch dimension size
                 occupied_positions = torch.cat([occupied_positions, pos], dim=1)
                 entity.set_pos(pos.squeeze(1), batch_index=env_index)
+
+    @staticmethod
+    def spawn_walls_randomly(
+            walls,
+            world,
+            env_index: int,
+            min_dist_between_entities: float,
+            x_bounds: Tuple[int, int],
+            y_bounds: Tuple[int, int],
+            occupied_positions: Tensor = None,
+            disable_warn: bool = False,
+        ):
+            batch_size = world.batch_dim if env_index is None else 1
+    
+            if occupied_positions is None:
+                occupied_positions = torch.zeros(
+                    (batch_size, 0, world.dim_p), device=world.device
+                )
+    
+            for wall in walls:
+                tries = 0
+                while True:
+                    # Calculate random position within +/-25% of the way from the center for x
+                    # and full range for y
+                    x_center = (x_bounds[0] + x_bounds[1]) / 2
+                    x_pos = x_center + (torch.rand(1).item() - 0.5) * (x_bounds[1] - x_bounds[0]) * 0.5
+                    y_pos = y_bounds[0] + torch.rand(1).item() * (y_bounds[1] - y_bounds[0])
+    
+                    pos = torch.tensor([[x_pos, y_pos]], device=world.device).unsqueeze(0)
+                    pos = pos.expand(batch_size, -1, -1)  # Ensure pos has the correct batch dimension size
+    
+                    if occupied_positions.shape[1] == 0:
+                        break
+    
+                    # Check if the new position maintains the minimum distance between entities
+                    dist = torch.cdist(occupied_positions, pos)
+                    overlaps = torch.any((dist < min_dist_between_entities).squeeze(2), dim=1)
+                    if not torch.any(overlaps, dim=0):
+                        break
+    
+                    tries += 1
+                    if tries > 50_000 and not disable_warn:
+                        warnings.warn(
+                            "It is taking many iterations to spawn the wall, make sure the bounds or "
+                            "the min_dist_between_entities are not too tight to fit all walls."
+                            "You can disable this warning by setting disable_warn=True"
+                        )
+
+                occupied_positions = torch.cat([occupied_positions, pos], dim=1)
+                wall.set_pos(pos.squeeze(1), batch_index=env_index)
+                #wall.set_rot(orientation_rad, batch_index=env_index)
 
     @staticmethod
     def check_kwargs_consumed(dictionary_of_kwargs: Dict, warn: bool = True):

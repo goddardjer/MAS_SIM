@@ -1,6 +1,0 @@
-vmas
-====
-
-
-.. automodule:: vmas
-    :members:

@@ -8,12 +8,13 @@ from vmas import render_interactively
 from vmas.simulator.core import Agent, Box, Landmark, Sphere, World
 from vmas.simulator.heuristic_policy import BaseHeuristicPolicy
 from vmas.simulator.scenario import BaseScenario
+from vmas.simulator.joints import Joint
 from vmas.simulator.utils import Color, ScenarioUtils
 
 
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
-        n_agents = kwargs.pop("n_agents", 4)
+        n_agents = kwargs.pop("n_agents", 7)
         capacity = kwargs.pop("capacity", 0.6)
         self.n_packages = kwargs.pop("n_packages", 1)
         self.package_width = kwargs.pop("package_width", 0.15)
@@ -24,6 +25,7 @@ class Scenario(BaseScenario):
         self.shaping_factor = 100
         self.world_semidim = 1
         self.agent_radius = 0.03
+        self.joint_threshold = 0.20
 
         # Make world
         world = World(
@@ -35,6 +37,10 @@ class Scenario(BaseScenario):
             y_semidim=self.world_semidim
             + 2 * self.agent_radius
             + max(self.package_length, self.package_width),
+            substeps=7,
+            joint_force=900,
+            collision_force=2500,
+            drag=0.25,
         )
         # Add agents
         for i in range(n_agents):
@@ -52,15 +58,49 @@ class Scenario(BaseScenario):
             color=Color.LIGHT_GREEN,
         )
 
-        wall_1 = Landmark(
-            name="wall_1",
+        wall_0 = Landmark(
+            name="wall_0",
             collide=True,
-            shape=Box(length=0.1, width=2),
+            shape=Box(length=0.1, width=0.25),
             color=Color.BLACK,
         )
 
+        wall_1 = Landmark(
+            name="wall_1",
+            collide=True,
+            shape=Box(length=0.1, width=0.25),
+            color=Color.BLACK,
+        )
+
+        wall_2 = Landmark(
+            name="wall_2",
+            collide=True,
+            shape=Box(length=0.1, width=0.25),
+            color=Color.BLACK,
+        )
+
+        wall_3 = Landmark(
+            name="wall_3",
+            collide=True,
+            shape=Box(length=0.1, width=0.25),
+            color=Color.BLACK,
+        )
+
+        wall_4 = Landmark(
+            name="wall_4",
+            collide=True,
+            shape=Box(length=0.1, width=0.25),
+            color=Color.BLACK,
+        )
 
         world.add_landmark(goal)
+
+        world.add_landmark(wall_0)
+        world.add_landmark(wall_1)
+        world.add_landmark(wall_2)
+        world.add_landmark(wall_3)
+        world.add_landmark(wall_4)
+
         self.packages = []
         for i in range(self.n_packages):
             package = Landmark(
@@ -100,17 +140,20 @@ class Scenario(BaseScenario):
             agent_occupied_positions = agent_occupied_positions[env_index].unsqueeze(0)
 
         goal = self.world.landmarks[0]
+        wall_0 = self.world.landmarks[1]
+        wall_1 = self.world.landmarks[2]
+        wall_2 = self.world.landmarks[3]
+        wall_3 = self.world.landmarks[4]
+        wall_4 = self.world.landmarks[5]
+
         ScenarioUtils.spawn_entities_randomly(
-            [goal] + self.packages,
+            [goal],
             self.world,
             env_index,
-            min_dist_between_entities=max(
-                package.shape.circumscribed_radius() + goal.shape.radius + 0.01
-                for package in self.packages
-            ),
+            min_dist_between_entities=0.0,
             x_bounds=(
-                -self.world_semidim,
-                self.world_semidim,
+                1.25,
+                2,
             ),
             y_bounds=(
                 -self.world_semidim,
@@ -118,6 +161,38 @@ class Scenario(BaseScenario):
             ),
             occupied_positions=agent_occupied_positions,
         )
+
+        ScenarioUtils.spawn_entities_randomly(
+            self.packages,
+            self.world,
+            env_index,
+            min_dist_between_entities=0.0,
+            x_bounds=(
+                -1.75,
+                -1.00,
+            ),
+            y_bounds=(
+                -self.world_semidim,
+                self.world_semidim,
+            ),
+            occupied_positions=agent_occupied_positions,
+        )
+
+        ScenarioUtils.spawn_walls_randomly(
+            [wall_0,wall_1, wall_2, wall_3, wall_4],
+            self.world,
+            env_index,
+            min_dist_between_entities=0.5,
+            x_bounds=(
+                -self.world_semidim,
+                self.world_semidim,
+            ),
+            y_bounds=(
+                -self.world_semidim,
+                self.world_semidim,
+            )
+        )
+
 
         for package in self.packages:
             package.on_goal = self.world.is_overlapping(package, package.goal)
@@ -136,6 +211,21 @@ class Scenario(BaseScenario):
                     )
                     * self.shaping_factor
                 )
+
+    def create_joint(self, agent: Agent, package: Landmark, distance):
+        joint = Joint(
+            entity_a=agent,
+            entity_b=package,
+            anchor_a=(0.0, 0.0),
+            anchor_b=(0.0, 0.0),
+            rotate_a=True,
+            rotate_b=True,
+            dist=distance,
+            collidable=True,
+            width=0.0,
+            mass=1.0,
+        )
+        self.world.add_joint(joint)
 
     def reward(self, agent: Agent):
         is_first = agent == self.world.agents[0]
@@ -198,6 +288,20 @@ class Scenario(BaseScenario):
             ),
             dim=-1,
         )
+    
+    def pre_step(self, agents):
+        
+        # threshold_distance = 0.15 # Set your threshold value here
+
+        # for agent in agents:
+        #     for package in self.packages:
+        #         distance = torch.dist(agent.state._pos, package.state._pos)
+        #         if distance < threshold_distance:
+        #             print(f"Distance between {agent} and {package} is {distance.item()}")
+        #             self.create_joint(agent, package, distance)
+
+
+        return super().pre_step()
 
 
 class HeuristicPolicy(BaseHeuristicPolicy):

@@ -28,7 +28,7 @@ def use_vmas_env(
     save_render: bool = False,
     num_envs: int = 32,
     n_steps: int = 100,
-    random_action: bool = False,
+    random_action: bool = True,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     scenario_name: str = "Project_Env",
     continuous_actions: bool = True,
@@ -111,15 +111,15 @@ def use_vmas_env(
     )
 
     if render and save_render:
-        save_video(scenario_name, frame_list, fps=1 / env.scenario.world.dt)
+        save_video(scenario_name, frame_list, fps=30 / env.scenario.world.dt)
 
 
 if __name__ == "__main__":
     use_vmas_env(
-        scenario_name="Project_Env",
+        scenario_name="Project_Scenario",
         render=True,
-        save_render=False,
-        random_action=False,
+        save_render=True,
+        random_action=True,
         continuous_actions=True,
-        n_agents=6,
+        n_agents=7,
     )

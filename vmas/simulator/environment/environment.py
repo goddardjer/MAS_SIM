@@ -263,7 +263,7 @@ class Environment(TorchVectorizedObject):
             self.scenario.env_process_action(agent)
 
         # advance world state
-        self.scenario.pre_step()
+        self.scenario.pre_step(self.world.agents)
         self.world.step()
         self.scenario.post_step()
 

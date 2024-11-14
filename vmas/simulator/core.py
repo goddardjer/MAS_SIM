@@ -506,7 +506,7 @@ class Action(TorchVectorizedObject):
         if self._u_noise_tensor is None:
             self._u_noise_tensor = self._to_tensor(self.u_noise)
         return self._u_noise_tensor
-
+        
     def _to_tensor(self, value):
         return torch.tensor(
             value if isinstance(value, Sequence) else [value] * self.action_size,
@@ -1092,7 +1092,7 @@ class World(TorchVectorizedObject):
         batch_dim: int,
         device: torch.device,
         dt: float = 0.1,
-        substeps: int = 1,  # if you use joints, higher this value to gain simulation stability
+        substeps: int = 2,  # if you use joints, higher this value to gain simulation stability
         drag: float = DRAG,
         linear_friction: float = LINEAR_FRICTION,
         angular_friction: float = ANGULAR_FRICTION,
