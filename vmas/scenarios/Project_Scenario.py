@@ -3,7 +3,7 @@
 #  All rights reserved.
 
 import torch
-
+import math
 from vmas import render_interactively
 from vmas.simulator.core import Agent, Box, Landmark, Sphere, World
 from vmas.simulator.heuristic_policy import BaseHeuristicPolicy
@@ -26,6 +26,9 @@ class Scenario(BaseScenario):
         self.world_semidim = 1
         self.agent_radius = 0.03
         self.joint_threshold = 0.20
+
+        self.energy_coeff = 0.02
+        self.energy_rew = torch.zeros(batch_dim, device=device)
 
         # Make world
         world = World(
@@ -259,6 +262,17 @@ class Scenario(BaseScenario):
                     - package_shaping[~package.on_goal]
                 )
                 package.global_shaping = package_shaping
+
+        # Assumption: all agents have same action range and multiplier
+        if is_first:
+            self.energy_rew = self.energy_coeff * -torch.stack(
+                [
+                    torch.linalg.vector_norm(a.action.u, dim=-1)
+                    / math.sqrt(self.world.dim_p * ((a.u_range * a.u_multiplier) ** 2))
+                    for a in self.world.agents
+                ],
+                dim=1,
+            ).sum(-1)
 
         return self.rew
 
