@@ -308,6 +308,40 @@ class ScenarioUtils:
                     "You can disable this warning by setting disable_warn=True"
                 )
         return pos
+    
+    @staticmethod
+    def spawn_entities_in_line_vertical(
+            entities,
+            world,
+            env_index: int,
+            min_dist_between_entities: float,
+            x_bounds: Tuple[int, int],
+            y_bounds: Tuple[int, int],
+            occupied_positions: Tensor = None,
+            disable_warn: bool = False,
+        ):
+            batch_size = world.batch_dim if env_index is None else 1
+    
+            if occupied_positions is None:
+                occupied_positions = torch.zeros(
+                    (batch_size, 0, world.dim_p), device=world.device
+                )
+    
+            # Calculate the x-coordinate within 1/5 of the left border
+            x_pos = x_bounds[0] + (x_bounds[1] - x_bounds[0]) * 0.05
+    
+            # Calculate the total height required for all entities
+            total_height = (len(entities) - 1) * min_dist_between_entities
+    
+            # Calculate the starting y-coordinate to center the entities
+            y_start = (y_bounds[0] + y_bounds[1]) / 2 - total_height / 2
+    
+            for i, entity in enumerate(entities):
+                y_pos = y_start + i * min_dist_between_entities
+                pos = torch.tensor([[x_pos, y_pos]], device=world.device).unsqueeze(0)
+                pos = pos.expand(batch_size, -1, -1)  # Ensure pos has the correct batch dimension size
+                occupied_positions = torch.cat([occupied_positions, pos], dim=1)
+                entity.set_pos(pos.squeeze(1), batch_index=env_index)
 
     @staticmethod
     def check_kwargs_consumed(dictionary_of_kwargs: Dict, warn: bool = True):
