@@ -120,6 +120,6 @@ if __name__ == "__main__":
         render=True,
         save_render=True,
         random_action=True,
-        continuous_actions=True,
+        continuous_actions=False,
         n_agents=7,
     )

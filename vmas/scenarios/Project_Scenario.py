@@ -15,11 +15,11 @@ from vmas.simulator.utils import Color, ScenarioUtils
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
         n_agents = kwargs.pop("n_agents", 7)
-        capacity = kwargs.pop("capacity", 0.6)
+        capacity = kwargs.pop("capacity", 0.8)
         self.n_packages = kwargs.pop("n_packages", 1)
         self.package_width = kwargs.pop("package_width", 0.15)
         self.package_length = kwargs.pop("package_length", 0.15)
-        self.package_mass = kwargs.pop("package_mass", 500)
+        self.package_mass = kwargs.pop("package_mass", 20)
         ScenarioUtils.check_kwargs_consumed(kwargs)
 
         self.shaping_factor = 100
@@ -27,7 +27,7 @@ class Scenario(BaseScenario):
         self.agent_radius = 0.03
         self.joint_threshold = 0.20
 
-        self.energy_coeff = 0.02
+        self.energy_coeff = 0.075
         self.energy_rew = torch.zeros(batch_dim, device=device)
 
         # Make world
@@ -41,8 +41,8 @@ class Scenario(BaseScenario):
             + 2 * self.agent_radius
             + max(self.package_length, self.package_width),
             substeps=7,
-            joint_force=900,
-            collision_force=2500,
+            #joint_force=900,
+            #collision_force=2500,
             drag=0.25,
         )
         # Add agents
@@ -98,11 +98,11 @@ class Scenario(BaseScenario):
 
         world.add_landmark(goal)
 
-        world.add_landmark(wall_0)
-        world.add_landmark(wall_1)
-        world.add_landmark(wall_2)
-        world.add_landmark(wall_3)
-        world.add_landmark(wall_4)
+        # world.add_landmark(wall_0)
+        # world.add_landmark(wall_1)
+        # world.add_landmark(wall_2)
+        # world.add_landmark(wall_3)
+        # world.add_landmark(wall_4)
 
         self.packages = []
         for i in range(self.n_packages):
@@ -143,11 +143,11 @@ class Scenario(BaseScenario):
             agent_occupied_positions = agent_occupied_positions[env_index].unsqueeze(0)
 
         goal = self.world.landmarks[0]
-        wall_0 = self.world.landmarks[1]
-        wall_1 = self.world.landmarks[2]
-        wall_2 = self.world.landmarks[3]
-        wall_3 = self.world.landmarks[4]
-        wall_4 = self.world.landmarks[5]
+        # wall_0 = self.world.landmarks[1]
+        # wall_1 = self.world.landmarks[2]
+        # wall_2 = self.world.landmarks[3]
+        # wall_3 = self.world.landmarks[4]
+        # wall_4 = self.world.landmarks[5]
 
         ScenarioUtils.spawn_entities_randomly(
             [goal],
@@ -181,20 +181,20 @@ class Scenario(BaseScenario):
             occupied_positions=agent_occupied_positions,
         )
 
-        ScenarioUtils.spawn_walls_randomly(
-            [wall_0,wall_1, wall_2, wall_3, wall_4],
-            self.world,
-            env_index,
-            min_dist_between_entities=0.5,
-            x_bounds=(
-                -self.world_semidim,
-                self.world_semidim,
-            ),
-            y_bounds=(
-                -self.world_semidim,
-                self.world_semidim,
-            )
-        )
+        # ScenarioUtils.spawn_walls_randomly(
+        #     [wall_0,wall_1, wall_2, wall_3, wall_4],
+        #     self.world,
+        #     env_index,
+        #     min_dist_between_entities=0.5,
+        #     x_bounds=(
+        #         -self.world_semidim,
+        #         self.world_semidim,
+        #     ),
+        #     y_bounds=(
+        #         -self.world_semidim,
+        #         self.world_semidim,
+        #     )
+        # )
 
 
         for package in self.packages:
@@ -221,10 +221,10 @@ class Scenario(BaseScenario):
             entity_b=package,
             anchor_a=(0.0, 0.0),
             anchor_b=(0.0, 0.0),
-            rotate_a=True,
-            rotate_b=True,
+            rotate_a=False,
+            rotate_b=False,
             dist=distance,
-            collidable=True,
+            collidable=False,
             width=0.0,
             mass=1.0,
         )
@@ -232,18 +232,20 @@ class Scenario(BaseScenario):
 
     def reward(self, agent: Agent):
         is_first = agent == self.world.agents[0]
-
+    
         if is_first:
             self.rew = torch.zeros(
                 self.world.batch_dim,
                 device=self.world.device,
                 dtype=torch.float32,
             )
-
+    
             for package in self.packages:
                 package.dist_to_goal = torch.linalg.vector_norm(
                     package.state.pos - package.goal.state.pos, dim=1
                 )
+
+                # This turs the package to no longer usefull
                 package.on_goal = self.world.is_overlapping(package, package.goal)
                 package.color = torch.tensor(
                     Color.RED.value,
@@ -255,16 +257,17 @@ class Scenario(BaseScenario):
                     device=self.world.device,
                     dtype=torch.float32,
                 )
-
+    
                 package_shaping = package.dist_to_goal * self.shaping_factor
                 self.rew[~package.on_goal] += (
                     package.global_shaping[~package.on_goal]
                     - package_shaping[~package.on_goal]
                 )
                 package.global_shaping = package_shaping
+    
 
-        # Assumption: all agents have same action range and multiplier
-        if is_first:
+            # This is a punishment for moving
+            # Assumption: all agents have same action range and multiplier
             self.energy_rew = self.energy_coeff * -torch.stack(
                 [
                     torch.linalg.vector_norm(a.action.u, dim=-1)
@@ -273,6 +276,9 @@ class Scenario(BaseScenario):
                 ],
                 dim=1,
             ).sum(-1)
+    
+            # Merge the rewards
+            self.rew += self.energy_rew
 
         return self.rew
 
@@ -285,10 +291,12 @@ class Scenario(BaseScenario):
             package_obs.append(package.state.vel)
             package_obs.append(package.on_goal.unsqueeze(-1))
 
+        capacity = torch.tensor(agent.u_multiplier, device=self.world.device).unsqueeze(-1).unsqueeze(-1)
         return torch.cat(
             [
                 agent.state.pos,
                 agent.state.vel,
+                #capacity,
                 *package_obs,
             ],
             dim=-1,
@@ -305,16 +313,17 @@ class Scenario(BaseScenario):
     
     def pre_step(self, agents):
         
-        # threshold_distance = 0.15 # Set your threshold value here
-
+        # threshold_distance = 0.25 # Set your threshold value here
+        
         # for agent in agents:
         #     for package in self.packages:
         #         distance = torch.dist(agent.state._pos, package.state._pos)
         #         if distance < threshold_distance:
-        #             print(f"Distance between {agent} and {package} is {distance.item()}")
-        #             self.create_joint(agent, package, distance)
-
-
+        #             # Check if the agent is not moving
+        #             if torch.all(agent.state._vel == 0):
+        #                 print(f"Distance between {agent} and {package} is {distance.item()}")
+        #                 self.create_joint(agent, package, distance)
+        
         return super().pre_step()
 
 
