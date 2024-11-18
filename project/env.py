@@ -296,7 +296,7 @@ class Scenario(BaseScenario):
             [
                 agent.state.pos,
                 agent.state.vel,
-                capacity,
+                #capacity,
                 *package_obs,
             ],
             dim=-1,
