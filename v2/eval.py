@@ -1,6 +1,6 @@
 import torch
 from vmas import make_env
-from model import SharedActorCritic
+from model import ActorNetwork  # Import only the actor
 import warnings
 from vmas.simulator.utils import save_video
 import cv2
@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 
 def visualize(
     env_name='v2',
-    n_agents=4,
+    n_agents=4,  # Set to 10 for evaluation
     device='cuda' if torch.cuda.is_available() else 'cpu',
     save_render=True,
     filename='evaluation_video.mp4',
@@ -18,7 +18,7 @@ def visualize(
     n_lidar_rays=15,
     n_packages=1,
 ):
-    # Create the environment with the same parameters as during training
+    # Create the environment with the desired number of agents
     env = make_env(
         scenario=env_name,
         num_envs=1,
@@ -35,10 +35,13 @@ def visualize(
     action_size = env.action_space[0].shape[0]
     print(f"Observation Size: {obs_size}, Action Size: {action_size}")
 
-    # Initialize the model without n_agents since the model doesn't depend on it
-    model = SharedActorCritic(obs_size, action_size, n_agents, hidden_size=256).to(device)
-    model.load_state_dict(torch.load('ppo_feedforward_model_best.pth', map_location=device))
-    model.eval()
+    # Initialize the actor model (no need for critic during evaluation)
+    actor_model = ActorNetwork(obs_size, action_size, hidden_size=256).to(device)
+
+    # Load the trained model's actor state dict
+    checkpoint = torch.load('ppo_feedforward_model_best.pth', map_location=device)
+    actor_model.load_state_dict(checkpoint['actor'])
+    actor_model.eval()
 
     # Reset the environment
     current_obs = env.reset()
@@ -51,15 +54,15 @@ def visualize(
     while not done and step < max_steps:
         with torch.no_grad():
             # Forward pass through the actor to get action distribution
-            dist = model.forward_actor(current_obs)
+            dist = actor_model(current_obs)
             action = dist.sample()
             
             # Clamp actions to the valid range [-1.0, 1.0]
             action = torch.clamp(action, -1.0, 1.0)
 
         # Reshape actions for environment
-        actions_env = torch.split(action, 1, dim=0)
-        actions_list = [actions_env[i] for i in range(n_agents)]
+        actions_env = action.view(n_agents, action_size)
+        actions_list = [actions_env[i].unsqueeze(0) for i in range(n_agents)]
 
         # Step environment
         obs_next, reward, done, info = env.step(actions_list)
@@ -90,7 +93,8 @@ def visualize(
 
     # Save the video
     if save_render:
-        fps = 30 / env.scenario.world.dt
+        # Handle cases where env.scenario.world.dt might not exist
+        fps = 5 / env.scenario.world.dt if hasattr(env.scenario.world, 'dt') else 5
         save_video(filename, frame_list, fps=fps)
         print(f"Video saved as {filename}")
 
