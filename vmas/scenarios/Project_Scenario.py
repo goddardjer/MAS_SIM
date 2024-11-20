@@ -215,20 +215,20 @@ class Scenario(BaseScenario):
                     * self.shaping_factor
                 )
 
-    def create_joint(self, agent: Agent, package: Landmark, distance):
-        joint = Joint(
-            entity_a=agent,
-            entity_b=package,
-            anchor_a=(0.0, 0.0),
-            anchor_b=(0.0, 0.0),
-            rotate_a=False,
-            rotate_b=False,
-            dist=distance,
-            collidable=False,
-            width=0.0,
-            mass=1.0,
-        )
-        self.world.add_joint(joint)
+    # def create_joint(self, agent: Agent, package: Landmark, distance):
+    #     joint = Joint(
+    #         entity_a=agent,
+    #         entity_b=package,
+    #         anchor_a=(0.0, 0.0),
+    #         anchor_b=(0.0, 0.0),
+    #         rotate_a=False,
+    #         rotate_b=False,
+    #         dist=distance,
+    #         collidable=False,
+    #         width=0.0,
+    #         mass=1.0,
+    #     )
+    #     self.world.add_joint(joint)
 
     def reward(self, agent: Agent):
         is_first = agent == self.world.agents[0]
@@ -311,20 +311,20 @@ class Scenario(BaseScenario):
             dim=-1,
         )
     
-    def pre_step(self, agents):
+    # def pre_step(self, agents):
         
-        threshold_distance = 0.25 # Set your threshold value here
+    #     threshold_distance = 0.25 # Set your threshold value here
         
-        for agent in agents:
-            for package in self.packages:
-                distance = torch.dist(agent.state._pos, package.state._pos)
-                if distance < threshold_distance:
-                    # Check if the agent is not moving
-                    if torch.all(agent.state._vel == 0):
-                        print(f"Distance between {agent} and {package} is {distance.item()}")
-                        self.create_joint(agent, package, distance)
+    #     for agent in agents:
+    #         for package in self.packages:
+    #             distance = torch.dist(agent.state._pos, package.state._pos)
+    #             if distance < threshold_distance:
+    #                 # Check if the agent is not moving
+    #                 if torch.all(agent.state._vel == 0):
+    #                     print(f"Distance between {agent} and {package} is {distance.item()}")
+    #                     self.create_joint(agent, package, distance)
         
-        return super().pre_step()
+    #     return super().pre_step()
 
 
 class HeuristicPolicy(BaseHeuristicPolicy):
