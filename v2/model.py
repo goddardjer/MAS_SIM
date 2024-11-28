@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.distributions as D
 
-class ActorNetwork(nn.Module):
+class Actor(nn.Module):
     def __init__(self, obs_size, action_size, hidden_size=256):
-        super(ActorNetwork, self).__init__()
+        super(Actor, self).__init__()
         
         # Actor shared layers (decentralized)
         self.actor_shared = nn.Sequential(
@@ -35,9 +35,9 @@ class ActorNetwork(nn.Module):
         return action_dist
 
 
-class CriticNetwork(nn.Module):
+class Critic(nn.Module):
     def __init__(self, hidden_size=256):
-        super(CriticNetwork, self).__init__()
+        super(Critic, self).__init__()
         
         # Critic shared layers
         self.critic_shared = nn.Sequential(

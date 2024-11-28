@@ -4,24 +4,24 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from vmas import make_env
-from model import ActorNetwork, CriticNetwork
+from model import Actor, Critic
 
 def train(
     env_name='v2',
-    num_envs=100,
-    n_agents=4,
-    n_steps=32,
-    total_timesteps=1000000,
+    num_envs=128,
+    n_agents=2,
+    n_steps=64,
+    total_timesteps=10000000,
     gamma=0.99,
     lam=0.95,
-    lr=3e-5,
+    lr=3e-6,
     clip_param=0.2,
     value_loss_coef=0.9,
     entropy_coef=0.001,
     max_grad_norm=0.05,
     epochs=10,
     minibatch_size=256,
-    hidden_size=256,
+    hidden_size=128,
     device='cuda' if torch.cuda.is_available() else 'cpu',
 ):
     # Create environment with specified number of agents
@@ -38,8 +38,8 @@ def train(
     action_size = env.action_space[0].shape[0]
 
     # Initialize separate actor and critic models and optimizer
-    actor_model = ActorNetwork(obs_size, action_size, hidden_size=hidden_size).to(device)
-    critic_model = CriticNetwork(hidden_size=hidden_size).to(device)
+    actor_model = Actor(obs_size, action_size, hidden_size=hidden_size).to(device)
+    critic_model = Critic(hidden_size=hidden_size).to(device)
     optimizer = optim.Adam(list(actor_model.parameters()) + list(critic_model.parameters()), lr=lr)
 
     # Track the best reward

@@ -1,6 +1,6 @@
 import torch
 from vmas import make_env
-from model import ActorNetwork  # Import only the actor
+from model import Actor  # Import only the actor
 import warnings
 from vmas.simulator.utils import save_video
 import cv2
@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 
 def visualize(
     env_name='v2',
-    n_agents=4,  # Set to 10 for evaluation
+    n_agents=5,  # Set to 10 for evaluation
     device='cuda' if torch.cuda.is_available() else 'cpu',
     save_render=True,
     filename='evaluation_video.mp4',
@@ -36,7 +36,7 @@ def visualize(
     print(f"Observation Size: {obs_size}, Action Size: {action_size}")
 
     # Initialize the actor model (no need for critic during evaluation)
-    actor_model = ActorNetwork(obs_size, action_size, hidden_size=256).to(device)
+    actor_model = Actor(obs_size, action_size, hidden_size=128).to(device)
 
     # Load the trained model's actor state dict
     checkpoint = torch.load('ppo_feedforward_model_best.pth', map_location=device)
