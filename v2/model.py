@@ -65,30 +65,30 @@ class Critic(nn.Module):
         return value
 
 
-class SharedActorCritic(nn.Module):
-    def __init__(self, obs_size, action_size, hidden_size=256):
-        super(SharedActorCritic, self).__init__()
+# class SharedActorCritic(nn.Module):
+#     def __init__(self, obs_size, action_size, hidden_size=256):
+#         super(SharedActorCritic, self).__init__()
         
-        # Separate actor and critic networks
-        self.actor = ActorNetwork(obs_size, action_size, hidden_size)
-        self.critic = CriticNetwork(hidden_size)
+#         # Separate actor and critic networks
+#         self.actor = ActorNetwork(obs_size, action_size, hidden_size)
+#         self.critic = CriticNetwork(hidden_size)
     
-    def forward_actor(self, x):
-        """
-        Forward pass for actor network.
-        Args:
-            x (Tensor): Individual agent observations.
-        Returns:
-            action_dist (Distribution): Action distribution for each agent.
-        """
-        return self.actor(x)
+#     def forward_actor(self, x):
+#         """
+#         Forward pass for actor network.
+#         Args:
+#             x (Tensor): Individual agent observations.
+#         Returns:
+#             action_dist (Distribution): Action distribution for each agent.
+#         """
+#         return self.actor(x)
     
-    def forward_critic(self, agent_features):
-        """
-        Forward pass for critic network.
-        Args:
-            agent_features (Tensor): Aggregated agent features. Shape: [batch_size, hidden_size]
-        Returns:
-            value (Tensor): Value estimates for each environment.
-        """
-        return self.critic(agent_features)
+#     def forward_critic(self, agent_features):
+#         """
+#         Forward pass for critic network.
+#         Args:
+#             agent_features (Tensor): Aggregated agent features. Shape: [batch_size, hidden_size]
+#         Returns:
+#             value (Tensor): Value estimates for each environment.
+#         """
+#         return self.critic(agent_features)

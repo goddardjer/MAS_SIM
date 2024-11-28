@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 
 def visualize(
     env_name='v2',
-    n_agents=5,  # Set to 10 for evaluation
+    n_agents=3,  # Set to desired number of agents for evaluation
     device='cuda' if torch.cuda.is_available() else 'cpu',
     save_render=True,
     filename='evaluation_video.mp4',
@@ -45,7 +45,7 @@ def visualize(
 
     # Reset the environment
     current_obs = env.reset()
-    current_obs = torch.cat(current_obs, dim=0).to(device)
+    current_obs = torch.cat(current_obs, dim=0).to(device)  # Shape: [n_agents, obs_size]
 
     frame_list = []  # List to store frames for video
     step = 0
@@ -60,19 +60,19 @@ def visualize(
             # Clamp actions to the valid range [-1.0, 1.0]
             action = torch.clamp(action, -1.0, 1.0)
 
-        # Reshape actions for environment
-        actions_env = action.view(n_agents, action_size)
-        actions_list = [actions_env[i].unsqueeze(0) for i in range(n_agents)]
+        # Prepare actions for environment
+        actions_list = [action[i].unsqueeze(0) for i in range(n_agents)]
 
         # Step environment
         obs_next, reward, done, info = env.step(actions_list)
 
         # Render the environment and collect frames
         frame = env.render(mode='rgb_array', visualize_when_rgb=False)
-        frame_list.append(frame)
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        frame_list.append(frame_bgr)
 
         # Display the frame live using OpenCV
-        cv2.imshow("Simulation", frame)
+        cv2.imshow("Simulation", frame_bgr)
         if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit visualization
             break
 
