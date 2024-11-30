@@ -119,6 +119,12 @@ def train(
 
                 # Get shared features for each agent
                 agent_features = actor_model.actor_shared(current_obs)  # Shape: [num_envs *n_agents, hidden_size]
+                
+                env_indices = torch.arange(num_envs, device=device).repeat_interleave(n_agents)
+
+    #             # Aggregate agent features per environment
+                # aggregated_features = torch.zeros(num_envs, hidden_size, device=device)
+                # aggregated_features = aggregated_features.index_add(0, env_indices, agent_features)
 
                 # Reshape to [num_envs, n_agents, hidden_size] and aggregate
                 agent_features = agent_features.view(num_envs, n_agents, hidden_size).mean(dim=1)  # Shape: [num_envs, hidden_size]
