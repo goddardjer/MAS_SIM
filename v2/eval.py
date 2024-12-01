@@ -12,7 +12,7 @@ def visualize(
     n_agents=3,  # Set to desired number of agents for evaluation
     device='cuda' if torch.cuda.is_available() else 'cpu',
     save_render=True,
-    filename='evaluation_video.mp4',
+    filename='evaluation_video',
     max_steps=500,
     use_lidar=True,
     n_lidar_rays=15,

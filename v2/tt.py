@@ -1,94 +1,71 @@
-# train.py
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
-import wandb
+import wandb  # Added import
 from vmas import make_env
-from vmas.simulator.environment import Environment
-from model import Actor, Critic  # Ensure you have defined Actor and Critic models in model.py
+from model import Actor, Critic
+from socket import gethostname
 
-
-
-class CustomEnvironment(Environment):
-    def __init__(self, scenario, num_envs, n_agents, device='cpu', **kwargs):
-        # Store num_envs and n_agents explicitly
-        self.num_envs = num_envs
-        self.n_agents = n_agents
-        super().__init__(scenario, n_envs=num_envs, device=device, **kwargs)
-
-    def step(self, actions):
-        # Call the superclass step method
-        obs, rewards, dones, infos = super().step(actions)
-
-        # Handle infos
-        if 'infos' in self.scenario.world.data:
-            infos = self.scenario.world.data['infos']
-        else:
-            # Default info structure if none exists
-            infos = [[{} for _ in range(self.n_agents)] for _ in range(self.num_envs)]
-
-        return obs, rewards, dones, infos
-
-
-def make_custom_env(scenario, num_envs, n_agents, device='cpu', **kwargs):
-    # Create the base VMAS environment
-    env = make_env(scenario=scenario, num_envs=num_envs, device=device, **kwargs)
-
-    # Wrap the environment in the CustomEnvironment class
-    custom_env = CustomEnvironment(env.scenario, num_envs=num_envs, n_agents=n_agents, device=device, **kwargs)
-    return custom_env
+if gethostname() == 'beast':
+    group_name = 'mohit'
+else:
+    group_name = 'ashton'
 
 def train(
     env_name='v2',
     num_envs=128,
     n_agents=2,
     n_steps=64,
-    total_timesteps=10000000,
+    total_timesteps=1000000,
     gamma=0.99,
     lam=0.95,
     lr=3e-6,
     clip_param=0.2,
-    value_loss_coef=0.9,
+    value_loss_coef=0.5,
     entropy_coef=0.001,
-    max_grad_norm=0.05,
-    epochs=10,
+    max_grad_norm=0.1,
+    epochs=5,
     minibatch_size=256,
     hidden_size=128,
     device='cuda' if torch.cuda.is_available() else 'cpu',
+    use_wandb=False,  # Added parameter
 ):
     # Initialize wandb
-    wandb.init(
-        project="multi-agent-ppo",
-        config={
-            "env_name": env_name,
-            "num_envs": num_envs,
-            "n_agents": n_agents,
-            "n_steps": n_steps,
-            "total_timesteps": total_timesteps,
-            "gamma": gamma,
-            "lam": lam,
-            "lr": lr,
-            "clip_param": clip_param,
-            "value_loss_coef": value_loss_coef,
-            "entropy_coef": entropy_coef,
-            "max_grad_norm": max_grad_norm,
-            "epochs": epochs,
-            "minibatch_size": minibatch_size,
-            "hidden_size": hidden_size,
-            "device": device,
-        }
-    )
+    if use_wandb:
+        wandb.init(
+            entity="multiagent-ppo-team4",
+            project="multi-agent-ppo",
+            group=group_name,
+            name=f"run-{env_name}-{n_agents}-agents",
+            config={
+                "env_name": env_name,
+                "num_envs": num_envs,
+                "n_agents": n_agents,
+                "n_steps": n_steps,
+                "total_timesteps": total_timesteps,
+                "gamma": gamma,
+                "lam": lam,
+                "lr": lr,
+                "clip_param": clip_param,
+                "value_loss_coef": value_loss_coef,
+                "entropy_coef": entropy_coef,
+                "max_grad_norm": max_grad_norm,
+                "epochs": epochs,
+                "minibatch_size": minibatch_size,
+                "hidden_size": hidden_size,
+                "device": device,
+            }
+        )
 
     # Create environment with specified number of agents
-    env = make_custom_env(
+    env = make_env(
         scenario=env_name,
         num_envs=num_envs,
-        n_agents=n_agents,
         device=device,
         continuous_actions=True,
+        n_agents=n_agents,
     )
 
     # Get observation and action sizes
@@ -100,9 +77,10 @@ def train(
     critic_model = Critic(hidden_size=hidden_size).to(device)
     optimizer = optim.Adam(list(actor_model.parameters()) + list(critic_model.parameters()), lr=lr)
 
-    # Watch models with wandb
-    wandb.watch(actor_model, log="all")
-    wandb.watch(critic_model, log="all")
+    if use_wandb:
+        # Log models to wandb
+        wandb.watch(actor_model, log="all")
+        wandb.watch(critic_model, log="all")
 
     # Track the best reward
     best_reward = -float('inf')
@@ -123,8 +101,11 @@ def train(
     num_updates = total_timesteps // (n_steps * num_envs)
 
     for update in range(num_updates):
-        # Reset reward components
-        reward_components = {}
+        # Initialize accumulators for logging
+        total_value_loss = 0
+        total_action_loss = 0
+        total_entropy = 0
+        num_updates_per_epoch = 0
 
         for step in range(n_steps):
             obs[step].copy_(current_obs)
@@ -157,7 +138,7 @@ def train(
             actions_list = [actions_env[:, i, :] for i in range(n_agents)]  # List of [num_envs, action_size]
 
             # Step environment and process rewards/dones
-            obs_next, reward, done, infos = env.step(actions_list)
+            obs_next, reward, done, info = env.step(actions_list)
             reward = torch.cat(reward, dim=0).to(device)  # Shape: [num_envs * n_agents,]
             done = torch.cat(done, dim=0).float().to(device) if isinstance(done, (list, tuple)) else done.float().to(device)  # Shape: [num_envs * n_agents,]
 
@@ -168,17 +149,6 @@ def train(
 
             rewards[step].copy_(reward)
             dones[step].copy_(done)
-
-            # Collect per-agent reward components from infos
-            for env_idx, env_infos in enumerate(infos):
-                for agent_idx, agent_info in enumerate(env_infos):
-                    if 'reward_components' in agent_info:
-                        components = agent_info['reward_components']
-                        for key, value in components.items():
-                            if key not in reward_components:
-                                reward_components[key] = 0.0
-                            # Accumulate the component value
-                            reward_components[key] += value
 
             # Prepare next observation
             current_obs = torch.cat(obs_next, dim=0).to(device)  # Shape: [num_envs * n_agents, obs_size]
@@ -219,14 +189,6 @@ def train(
         b_advantages = advantages.view(-1)                  # Shape: [n_steps * num_envs * n_agents]
         b_log_probs = log_probs.view(-1)                    # Shape: [n_steps * num_envs * n_agents]
 
-        # Initialize variables to accumulate losses and gradient norms
-        total_value_loss = 0.0
-        total_action_loss = 0.0
-        total_entropy = 0.0
-        total_loss = 0.0
-        total_grad_norms = 0.0
-        num_updates_per_epoch = 0
-
         # PPO policy optimization
         for epoch in range(epochs):
             indices = np.arange(b_obs.size(0))
@@ -243,22 +205,21 @@ def train(
                 batch_advantages = b_advantages[minibatch_indices]  # Shape: [minibatch_size]
                 batch_log_probs = b_log_probs[minibatch_indices]  # Shape: [minibatch_size]
 
-                # Forward pass for action log probs and values
+                # Forward pass for actor
                 dist = actor_model(batch_obs)  # Shape: [minibatch_size, action_size]
                 agent_features = actor_model.actor_shared(batch_obs)  # Shape: [minibatch_size, hidden_size]
 
-                # Ensure the batch size is divisible by n_agents
-                if agent_features.size(0) % n_agents != 0:
-                    raise ValueError("Batch size is not divisible by number of agents")
+                # Create environment indices dynamically
+                num_envs_in_minibatch = batch_obs.size(0) // n_agents  # Infer num_envs dynamically
+                env_indices = torch.arange(num_envs_in_minibatch, device=batch_obs.device).repeat_interleave(n_agents)
 
-                batch_envs = agent_features.size(0) // n_agents  # e.g., 256 /2=128
-                agent_features = agent_features.view(batch_envs, n_agents, hidden_size).mean(dim=1)  # Shape: [batch_envs, hidden_size]
+                # Aggregate agent features per environment
+                aggregated_features = torch.zeros(num_envs_in_minibatch, hidden_size, device=batch_obs.device)
+                aggregated_features = aggregated_features.index_add(0, env_indices, agent_features)
 
-                # Value prediction for each environment in the batch
-                values_pred = critic_model(agent_features).squeeze(-1)  # Shape: [batch_envs]
-
-                # Repeat values_pred for each agent to match batch size
-                values_pred = values_pred.repeat_interleave(n_agents)  # Shape: [batch_envs * n_agents] = [minibatch_size]
+                # Value prediction for each environment
+                values_pred = critic_model(aggregated_features).squeeze(-1)  # Shape: [num_envs_in_minibatch]
+                values_pred = values_pred[env_indices]  # Map values back to agents, Shape: [minibatch_size]
 
                 # Compute log probabilities and entropy
                 action_log_probs = dist.log_prob(batch_actions).sum(-1)  # Shape: [minibatch_size]
@@ -279,61 +240,35 @@ def train(
                 # Backpropagation and optimization
                 optimizer.zero_grad()
                 loss.backward()
-                # Compute gradient norms
-                total_grad_norm = 0.0
-                for p in list(actor_model.parameters()) + list(critic_model.parameters()):
-                    if p.grad is not None:
-                        param_norm = p.grad.data.norm(2)
-                        total_grad_norm += param_norm.item() ** 2
-                total_grad_norm = total_grad_norm ** 0.5
-
                 nn.utils.clip_grad_norm_(list(actor_model.parameters()) + list(critic_model.parameters()), max_grad_norm)
                 optimizer.step()
 
-                # Accumulate metrics
+                # Accumulate losses for logging
                 total_value_loss += value_loss.item()
                 total_action_loss += action_loss.item()
                 total_entropy += entropy.item()
-                total_loss += loss.item()
-                total_grad_norms += total_grad_norm
                 num_updates_per_epoch += 1
 
-        # Calculate average losses and gradient norms
+        # Calculate average losses
         avg_value_loss = total_value_loss / num_updates_per_epoch
         avg_action_loss = total_action_loss / num_updates_per_epoch
         avg_entropy = total_entropy / num_updates_per_epoch
-        avg_loss = total_loss / num_updates_per_epoch
-        avg_grad_norm = total_grad_norms / num_updates_per_epoch
 
-        # Compute total reward per agent
+        # Compute total reward
         total_reward = rewards.sum().item() / (num_envs * n_agents * n_steps)
 
-        # Compute average reward components
-        avg_reward_components = {}
-        total_agents = num_envs * n_agents * n_steps
-        for key, value in reward_components.items():
-            avg_reward_components[key] = value / total_agents
+        if use_wandb:
+            # Logging metrics to wandb
+            wandb.log({
+                'update': update,
+                'total_reward_per_agent': total_reward,
+                'value_loss': avg_value_loss,
+                'action_loss': avg_action_loss,
+                'entropy': avg_entropy,
+                'learning_rate': lr,
+            })
 
-        # Prepare metrics for logging
-        metrics = {
-            'update': update,
-            'average_reward_per_agent': total_reward,
-            'value_loss': avg_value_loss,
-            'action_loss': avg_action_loss,
-            'loss': avg_loss,
-            'entropy': avg_entropy,
-            'learning_rate': lr,
-            'avg_grad_norm': avg_grad_norm,
-        }
-
-        # Add average reward components
-        for key, value in avg_reward_components.items():
-            metrics[f'avg_reward_component/{key}'] = value
-
-        # Log metrics to wandb
-        wandb.log(metrics)
-
-        # Logging and saving the best model
+        # Print logging information
         if update % 10 == 0:
             print(f"Update {update}/{num_updates}, Total Reward per Agent: {total_reward:.2f}")
 
@@ -346,9 +281,10 @@ def train(
     # Final save of the model
     torch.save({'actor': actor_model.state_dict(), 'critic': critic_model.state_dict()}, 'ppo_feedforward_model_final.pth')
 
+    if use_wandb:
     # Finish wandb run
-    wandb.finish()
+        wandb.finish()
 
 
 if __name__ == '__main__':
-    train()
+    train(use_wandb=True)  # Added parameter

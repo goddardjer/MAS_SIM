@@ -96,7 +96,6 @@ class Scenario(BaseScenario):
                 self.walls.append(wall)
                 world.add_landmark(wall)
 
-        # self.world = world  # Save the world instance
         return world
 
     def reset_world_at(self, env_index: int = None):
@@ -294,9 +293,6 @@ class Scenario(BaseScenario):
                 )
 
 
-    def post_step(self):
-        # Post-step logic if needed
-        pass
 
 
 if __name__ == "__main__":

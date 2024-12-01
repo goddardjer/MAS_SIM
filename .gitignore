@@ -54,6 +54,10 @@ cmake-build-*/
 
 .idea
 
+*.mp4
+logs/
+
+
 wandb
 
 junit
