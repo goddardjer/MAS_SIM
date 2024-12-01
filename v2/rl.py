@@ -242,6 +242,8 @@ for tensordict_data in collector:
     pbar.set_description(f"episode_reward_mean = {episode_reward_mean}", refresh=False)
     pbar.update()
 
+torch.save(policy.state_dict(), 'policy.pth')
+
 plt.plot(episode_reward_mean_list)
 plt.xlabel("Training iterations")
 plt.ylabel("Reward")

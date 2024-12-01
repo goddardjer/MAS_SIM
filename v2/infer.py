@@ -1,0 +1,77 @@
+import torch
+from tensordict.nn import TensorDictModule
+from tensordict.nn.distributions import NormalParamExtractor
+from torchrl.envs import RewardSum, TransformedEnv
+from torchrl.envs.libs.vmas import VmasEnv
+from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
+
+device = torch.device("cpu")
+vmas_device = device
+
+max_steps = 500
+scenario_name = "v2"
+n_agents = 2
+num_vmas_envs = 1
+
+env = VmasEnv(
+    scenario=scenario_name,
+    num_envs=num_vmas_envs,
+    continuous_actions=True,
+    max_steps=max_steps,
+    device=vmas_device,
+    n_agents=n_agents,
+)
+
+env = TransformedEnv(
+    env,
+    RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
+)
+
+share_parameters_policy = True
+
+policy_net = torch.nn.Sequential(
+    MultiAgentMLP(
+        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1],
+        n_agent_outputs=2 * env.action_spec.shape[-1],
+        n_agents=env.n_agents,
+        centralised=False,
+        share_params=share_parameters_policy,
+        device=device,
+        depth=2,
+        num_cells=256,
+        activation_class=torch.nn.Tanh,
+    ),
+    NormalParamExtractor(),
+)
+
+policy_module = TensorDictModule(
+    policy_net,
+    in_keys=[("agents", "observation")],
+    out_keys=[("agents", "loc"), ("agents", "scale")],
+)
+
+policy = ProbabilisticActor(
+    module=policy_module,
+    spec=env.unbatched_action_spec,
+    in_keys=[("agents", "loc"), ("agents", "scale")],
+    out_keys=[env.action_key],
+    distribution_class=TanhNormal,
+    distribution_kwargs={
+        "low": env.unbatched_action_spec[env.action_key].space.low,
+        "high": env.unbatched_action_spec[env.action_key].space.high,
+    },
+    return_log_prob=True,
+    log_prob_key=("agents", "sample_log_prob"),
+)
+
+policy.load_state_dict(torch.load('policy.pth', map_location=device))
+
+# Run inference
+with torch.no_grad():
+    env.rollout(
+        max_steps=max_steps,
+        policy=policy,
+        callback=lambda env, _: env.render(),
+        auto_cast_to_device=True,
+        break_when_any_done=False,
+    )
