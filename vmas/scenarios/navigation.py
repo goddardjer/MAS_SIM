@@ -195,6 +195,8 @@ class Scenario(BaseScenario):
                     )
                     * self.pos_shaping_factor
                 )
+    def pre_step(self, agents):
+        pass
 
     def reward(self, agent: Agent):
         is_first = agent == self.world.agents[0]

@@ -1,35 +1,20 @@
-
 import torch
-
-# Tensordict modules
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 from torch import multiprocessing
-
-# Data collection
 from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
-
-# Env
 from torchrl.envs import RewardSum, TransformedEnv
 from torchrl.envs.libs.vmas import VmasEnv
 from torchrl.envs.utils import check_env_specs
-
-# Multi-agent network
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
-
-# Loss
 from torchrl.objectives import ClipPPOLoss, ValueEstimators
-
-# Utils
 torch.manual_seed(0)
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 
-# %%
-# Devices
 is_fork = multiprocessing.get_start_method() == "fork"
 device = (
     torch.device(0)
@@ -55,7 +40,6 @@ gamma = 0.99  # discount factor
 lmbda = 0.9  # lambda for generalised advantage estimation
 entropy_eps = 1e-4  # coefficient of the entropy term in the PPO loss
 
-# %%
 max_steps = 200  # Episode steps before done
 num_vmas_envs = (
     frames_per_batch // max_steps
@@ -72,34 +56,28 @@ env = VmasEnv(
     # Scenario kwargs
     n_agents=n_agents,  # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
 )
- %%
+
 print("action_spec:", env.full_action_spec)
 print("reward_spec:", env.full_reward_spec)
 print("done_spec:", env.full_done_spec)
 print("observation_spec:", env.observation_spec)
 
-# %%
 print("action_keys:", env.action_keys)
 print("reward_keys:", env.reward_keys)
 print("done_keys:", env.done_keys)
 
-# %%
 env = TransformedEnv(
     env,
     RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
 )
 
-# %%
 check_env_specs(env)
 
-
-# %%
 n_rollout_steps = 5
 rollout = env.rollout(n_rollout_steps)
 print("rollout of three steps:", rollout)
 print("Shape of the rollout TensorDict:", rollout.batch_size)
 
-# %%
 share_parameters_policy = True
 
 policy_net = torch.nn.Sequential(
@@ -119,14 +97,13 @@ policy_net = torch.nn.Sequential(
     NormalParamExtractor(),  # this will just separate the last dimension into two outputs: a loc and a non-negative scale
 )
 
-# %%
+
 policy_module = TensorDictModule(
     policy_net,
     in_keys=[("agents", "observation")],
     out_keys=[("agents", "loc"), ("agents", "scale")],
 )
 
-# %%
 policy = ProbabilisticActor(
     module=policy_module,
     spec=env.unbatched_action_spec,
@@ -141,7 +118,6 @@ policy = ProbabilisticActor(
     log_prob_key=("agents", "sample_log_prob"),
 )  # we'll need the log-prob for the PPO loss
 
-# %%
 share_parameters_critic = True
 mappo = True  # IPPO if False
 
@@ -163,11 +139,9 @@ critic = TensorDictModule(
     out_keys=[("agents", "state_value")],
 )
 
-# %%
 print("Running policy:", policy(env.reset()))
 print("Running value:", critic(env.reset()))
 
-# %%
 collector = SyncDataCollector(
     env,
     policy,
@@ -177,7 +151,6 @@ collector = SyncDataCollector(
     total_frames=total_frames,
 )
 
-# %%
 replay_buffer = ReplayBuffer(
     storage=LazyTensorStorage(
         frames_per_batch, device=device
@@ -186,7 +159,6 @@ replay_buffer = ReplayBuffer(
     batch_size=minibatch_size,  # We will sample minibatches of this size
 )
 
-# %%
 loss_module = ClipPPOLoss(
     actor_network=policy,
     critic_network=critic,
@@ -211,8 +183,6 @@ loss_module.make_value_estimator(
 GAE = loss_module.value_estimator
 
 optim = torch.optim.Adam(loss_module.parameters(), lr)
-
-# %%
 pbar = tqdm(total=n_iters, desc="episode_reward_mean = 0")
 
 episode_reward_mean_list = []
@@ -272,14 +242,12 @@ for tensordict_data in collector:
     pbar.set_description(f"episode_reward_mean = {episode_reward_mean}", refresh=False)
     pbar.update()
 
-# %%
 plt.plot(episode_reward_mean_list)
 plt.xlabel("Training iterations")
 plt.ylabel("Reward")
 plt.title("Episode reward mean")
 plt.show()
 
-# %%
 with torch.no_grad():
    env.rollout(
        max_steps=max_steps,
@@ -288,8 +256,6 @@ with torch.no_grad():
        auto_cast_to_device=True,
        break_when_any_done=False,
    )
-
-# %%
 
 
 
