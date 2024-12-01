@@ -15,15 +15,17 @@ class Scenario(BaseScenario):
         self.n_packages = kwargs.pop("n_packages", 1)
         self.package_width = kwargs.pop("package_width", 0.15)
         self.package_length = kwargs.pop("package_length", 0.15)
-        self.package_mass = kwargs.pop("package_mass", 5)
+        self.package_mass = kwargs.pop("package_mass", 3)
         self.use_lidar = kwargs.pop("use_lidar", True)
-        self.n_lidar_rays = kwargs.pop("n_lidar_rays", 15)
-        self.lidar_range = kwargs.pop("lidar_range", 1.0)
+        self.n_lidar_rays = kwargs.pop("n_lidar_rays", 36)
+        self.lidar_range = kwargs.pop("lidar_range", 2.0)
         self.world_semidim = kwargs.pop("world_semidim", 1.5)
         self.agent_radius = kwargs.pop("agent_radius", 0.02)
         self.enable_walls = kwargs.pop("enable_walls", False)
         self.num_walls = kwargs.pop("num_walls", 0)
-        self.shaping_factor = 100
+        self.shaping_factor = 50
+        self.agent_shaping_factor = 20
+        self.goal_bonus = 100.0
         self.energy_coeff = 0.075
         self.energy_rew = torch.zeros(batch_dim, device=device)
         self.reward_dict = {}
@@ -36,8 +38,8 @@ class Scenario(BaseScenario):
             device,
             x_semidim=self.world_semidim,
             y_semidim=self.world_semidim,
-            substeps=7,
-            drag=0.25,
+            # substeps=7,
+            # drag=0.25,
         )
 
         # Add agents
@@ -71,7 +73,7 @@ class Scenario(BaseScenario):
         self.packages = []
         for i in range(self.n_packages):
             package = Landmark(
-                name=f"package_{i}",
+                name=f"package {i}",
                 collide=True,
                 movable=True,
                 mass=self.package_mass,
@@ -79,8 +81,6 @@ class Scenario(BaseScenario):
                 color=Color.RED,
             )
             package.goal = goal
-            package.on_goal = torch.zeros(batch_dim, dtype=torch.bool, device=device)  # Initialize on_goal attribute
-            package.global_shaping = torch.zeros(batch_dim, device=device)  # Initialize global_shaping attribute
             self.packages.append(package)
             world.add_landmark(package)
 
@@ -101,6 +101,7 @@ class Scenario(BaseScenario):
         return world
 
     def reset_world_at(self, env_index: int = None):
+        
         # Spawn agents
         ScenarioUtils.spawn_entities_randomly(
             self.world.agents,
@@ -121,10 +122,13 @@ class Scenario(BaseScenario):
         # Spawn goal
         goal = self.world.landmarks[0]
         ScenarioUtils.spawn_entities_randomly(
-            [goal],
+            [goal], 
             self.world,
             env_index,
-            min_dist_between_entities=0.0,
+            min_dist_between_entities=max(
+                package.shape.circumscribed_radius() + goal.shape.radius + 0.01
+                for package in self.packages
+            ),
             x_bounds=(self.world_semidim / 2, self.world_semidim),
             y_bounds=(-self.world_semidim, self.world_semidim),
             occupied_positions=agent_occupied_positions,
@@ -146,327 +150,113 @@ class Scenario(BaseScenario):
                 package.global_shaping = (
                     torch.linalg.vector_norm(
                         package.state.pos - package.goal.state.pos, dim=1
-                    ) * self.shaping_factor
+                    )
+                    * self.shaping_factor
                 )
             else:
                 package.global_shaping[env_index] = (
                     torch.linalg.vector_norm(
-                        package.state.pos[env_index] - package.goal.state.pos, dim=1
-                    ) * self.shaping_factor
+                        package.state.pos[env_index] - package.goal.state.pos[env_index]
+                    )
+                    * self.shaping_factor
                 )
 
-    # def observation(self, agent: Agent):
-    #     # Agent's position, velocity, and capacity
-    #     pos = agent.state.pos  # [batch_dim, 2]
-    #     vel = agent.state.vel  # [batch_dim, 2]
-    #     capacity = torch.full((self.world.batch_dim, 1), agent.u_multiplier, device=self.world.device)
+        for agent in self.world.agents:
+            if env_index is None:
+                agent.global_shaping = (
+                    torch.linalg.vector_norm(
+                        agent.state.pos - self.packages[0].state.pos, dim=1
+                ) * self.agent_shaping_factor
+                )
+            else:
+                agent.global_shaping[env_index] = (
+                    torch.linalg.vector_norm(
+                        agent.state.pos[env_index] - self.packages[0].state.pos[env_index]
+                    ) * self.agent_shaping_factor
+                )
+            
+    def reward(self, agent: Agent):
+        step_penalty = -0.5
 
-    #     obs = [pos, vel, capacity]  # Initial observations: 5 features
+        is_first = agent == self.world.agents[0]
 
-    #     # Lidar readings
-    #     if self.use_lidar:
-    #         lidar_measurements = agent.sensors[0].measure()  # [batch_dim, n_lidar_rays]
-    #         obs.append(lidar_measurements)  # Add lidar readings to obs
+        if is_first:
+            self.rew = torch.zeros(
+                self.world.batch_dim,
+                device=self.world.device,
+                dtype=torch.float32,
+            )
 
-    #     # Package information
-    #     for package in self.packages:
-    #         pos_to_goal = package.state.pos - package.goal.state.pos  # Vector from package to goal
-    #         pos_to_agent = package.state.pos - agent.state.pos        # Vector from package to agent
-    #         package_vel = package.state.vel                           # Package velocity
-    #         on_goal = package.on_goal.unsqueeze(-1)                   # Goal status (boolean as a feature)
+            for package in self.packages:
+                package.dist_to_goal = torch.linalg.vector_norm(
+                    package.state.pos - package.goal.state.pos, dim=1
+                )
+                package.on_goal = self.world.is_overlapping(package, package.goal)
+                package.color = torch.tensor(
+                    Color.RED.value,
+                    device=self.world.device,
+                    dtype=torch.float32,
+                ).repeat(self.world.batch_dim, 1)
+                package.color[package.on_goal] = torch.tensor(
+                    Color.GREEN.value,
+                    device=self.world.device,
+                    dtype=torch.float32,
+                )
+                for a in self.world.agents:
+                    a.dist_to_package = torch.linalg.vector_norm(
+                        a.state.pos - package.state.pos, dim=1
+                    )
 
-    #         obs.extend([pos_to_goal, pos_to_agent, package_vel, on_goal])  # 8 features per package
+                package_shaping = package.dist_to_goal * self.shaping_factor
+                self.rew[~package.on_goal] += (
+                    package.global_shaping[~package.on_goal]
+                    - package_shaping[~package.on_goal]
+                )
+                package.global_shaping = package_shaping
 
-    #     return torch.cat(obs, dim=-1)  # Final concatenated observation tensor
+                self.rew += self.goal_bonus * package.on_goal.float()
+
+        agent_shaping = agent.dist_to_package * self.agent_shaping_factor
+        rew = agent.global_shaping - agent_shaping #+ step_penalty
+        agent.global_shaping = agent_shaping
+
+        # self.rew += step_penalty
+
+        return self.rew + rew
+
+
     def observation(self, agent: Agent):
-        # Agent's position, velocity, and capacity
-        pos = agent.state.pos  # [batch_dim, 2]
-        vel = agent.state.vel  # [batch_dim, 2]
-        # capacity = torch.full((self.world.batch_dim, 1), agent.u_multiplier, device=self.world.device)
-
-        obs = [pos, vel]  # Initial observations: 5 features
-
         # Lidar readings
         if self.use_lidar:
-            lidar_measurements = agent.sensors[0].measure()  # [batch_dim, n_lidar_rays]
-            obs.append(lidar_measurements)  # Add lidar readings to obs
-
-        # Package information
-        # for package in self.packages:
-        #     pos_to_goal = package.state.pos - package.goal.state.pos  # Vector from package to goal
-        #     pos_to_agent = package.state.pos - agent.state.pos        # Vector from package to agent
-        #     package_vel = package.state.vel                           # Package velocity
-        #     on_goal = package.on_goal.unsqueeze(-1)                   # Goal status (boolean as a feature)
-
-        #     obs.extend([pos_to_goal, pos_to_agent, package_vel, on_goal])  # 8 features per package
-
-        # Add agent's relative position to goal
-        # for package in self.packages:
-        #     pos_to_goal = package.state.pos - package.goal.state.pos
-        #     obs.append(pos_to_goal)  # Add to observation
-
-        # Add a global goal indicator for the agent
-        # all_packages_on_goal = torch.all(torch.stack([package.on_goal for package in self.packages], dim=1), dim=-1)
-        # goal_indicator = all_packages_on_goal.unsqueeze(-1).float()
-        # obs.append(goal_indicator)
-
-        # Add previous action taken by the agent (this assumes action history is tracked)
-        # if hasattr(agent, 'last_action'):
-        #     obs.append(agent.last_action)  # Add the agent's previous action to the observation
-        obs = torch.cat(obs, dim=-1)  # Final concatenated observation tensor
-        # print(obs.shape)
-        # input()
-        return obs  # Final concatenated observation tensor
-
-
-    # def reward(self, agent: Agent):
-    #     # Only compute reward once per timestep, based on the first agent in list
-    #     is_first = agent == self.world.agents[0]
-    #     if is_first:
-    #         self.rew = torch.zeros(self.world.batch_dim, device=self.world.device, dtype=torch.float32)
-
-    #         # Reward for each package
-    #         for package in self.packages:
-    #             # Calculate distance to goal
-    #             package.dist_to_goal = torch.linalg.vector_norm(package.state.pos - package.goal.state.pos, dim=1)
-    #             package.on_goal = self.world.is_overlapping(package, package.goal)
-    #             package.color = torch.tensor(
-    #                 Color.RED.value, device=self.world.device, dtype=torch.float32
-    #             ).repeat(self.world.batch_dim, 1)
-    #             package.color[package.on_goal] = torch.tensor(
-    #                 Color.GREEN.value, device=self.world.device, dtype=torch.float32
-    #             )
-
-    #             # Shaping and reward based on reaching goal
-    #             package_shaping = package.dist_to_goal * self.shaping_factor
-    #             self.rew[~package.on_goal] += (
-    #                 package.global_shaping[~package.on_goal] - package_shaping[~package.on_goal]
-    #             )
-    #             package.global_shaping = package_shaping
-
-    #         # Energy penalty for each agent's movement
-    #         self.energy_rew = self.energy_coeff * -torch.stack(
-    #             [
-    #                 torch.linalg.vector_norm(a.action.u, dim=-1)
-    #                 / math.sqrt(self.world.dim_p * ((a.u_range * a.u_multiplier) ** 2))
-    #                 for a in self.world.agents
-    #             ],
-    #             dim=1,
-    #         ).sum(-1)
-    #         self.rew += self.energy_rew
-
-    #     return self.rew  # Return reward tensor
-    # def reward(self, agent: Agent):
-        # # Only compute reward once per timestep, based on the first agent in the list
-        # is_first = agent == self.world.agents[0]
-        # if is_first:
-        #     self.rew = torch.zeros(self.world.batch_dim, device=self.world.device, dtype=torch.float32)
-
-        #     # Initialization for rewards
-        #     goal_bonus = 100.0  # Bonus for reaching the goal
-        #     collision_penalty = -1.0  # Penalty for collisions
-        #     proximity_reward_coeff = 10.0  # Reward coefficient for staying near a package
-        #     team_contribution_coeff = 50.0  # Reward coefficient for moving packages closer to the goal
-        #     step_penalty = -1  # Penalty for each timestep taken by agents to encourage faster completion
-
-        #     for package in self.packages:
-        #         # Calculate distance to goal
-        #         package.dist_to_goal = torch.linalg.vector_norm(package.state.pos - package.goal.state.pos, dim=1)
-        #         package.on_goal = self.world.is_overlapping(package, package.goal)
-
-        #         # Color packages based on their goal status
-        #         package.color = torch.tensor(
-        #             Color.RED.value, device=self.world.device, dtype=torch.float32
-        #         ).repeat(self.world.batch_dim, 1)
-        #         package.color[package.on_goal] = torch.tensor(
-        #             Color.GREEN.value, device=self.world.device, dtype=torch.float32
-        #         )
-
-        #         # **Step 1: Reward for Agents Getting Close to the Package**
-        #         # Proximity reward for agents getting near to the package
-        #         agents_near_package = torch.zeros(self.world.batch_dim, device=self.world.device)
-
-        #         for agent in self.world.agents:
-        #             agent_to_package_dist = torch.linalg.vector_norm(agent.state.pos - package.state.pos, dim=1)
-        #             proximity_reward = proximity_reward_coeff * torch.exp(-agent_to_package_dist)
-        #             self.rew += proximity_reward
-
-        #             # Count agents near the package (within a certain threshold)
-        #             agents_near_threshold = 0.2  # Distance threshold to consider agents near the package
-        #             agents_near_package += (agent_to_package_dist < agents_near_threshold).float()
-
-        #         # **Step 2: Reward for Moving the Package Towards the Goal**
-        #         # Create a mask to check if enough agents are near the package for each batch
-        #         min_agents_near_package = 2  # Define how many agents need to be near
-        #         sufficient_agents_near = agents_near_package >= min_agents_near_package  # Shape: [batch_dim]
-
-        #         # Only apply reward for moving the package if sufficient agents are near it
-        #         if sufficient_agents_near.any():
-        #             shaping_factor = torch.exp(-package.dist_to_goal) * self.shaping_factor
-        #             reward_delta = package.global_shaping - shaping_factor
-
-        #             # Apply reward only to those batches where sufficient agents are near the package
-        #             self.rew[sufficient_agents_near] += reward_delta[sufficient_agents_near]
-
-        #             # Update global shaping for all packages
-        #             package.global_shaping = shaping_factor
-
-        #             # Bonus reward for reaching the goal
-        #             self.rew += goal_bonus * package.on_goal.float()
-
-        #     # **Energy Penalty for Each Agent's Movement**
-        #     self.energy_rew = self.energy_coeff * -torch.stack(
-        #         [
-        #             torch.linalg.vector_norm(a.action.u, dim=-1)
-        #             / math.sqrt(self.world.dim_p * ((a.u_range * a.u_multiplier) ** 2))
-        #             for a in self.world.agents
-        #         ],
-        #         dim=1,
-        #     ).sum(-1)
-        #     self.rew += self.energy_rew
-
-        #     # **Collision Penalty Between Agents**
-            # collision_count = torch.zeros(self.world.batch_dim, device=self.world.device)
-            # for agent in self.world.agents:
-            #     for other_agent in self.world.agents:
-            #         if agent != other_agent:
-            #             is_collision = self.world.is_overlapping(agent, other_agent)
-            #             if is_collision.any():
-            #                 collision_count[is_collision] += 1
-
-            # # Apply a penalty that scales with the number of collisions
-            # self.rew += collision_penalty * collision_count
-
-        #     # **Step Penalty for Each Step Taken**
-        #     self.rew += step_penalty
-
-        # return self.rew  # Return reward tensor
-    def reward(self, agent: Agent):
-        
-        # is_first = agent == self.world.agents[0]
-        # if is_first:
-        rew = torch.zeros(self.world.batch_dim, device=self.world.device, dtype=torch.float32)
-
-        # Define constants
-        goal_bonus = 100.0
-        collision_penalty = -1.0
-        proximity_reward_coeff = 10.0
-        team_contribution_coeff = 50.0
-        step_penalty = -1
-        zone_radius = 0.5  # Define the zone radius around the package
-        outside_zone_penalty = -5.0  # Penalty for agents outside the zone
-
+            lidar_measurements = agent.sensors[0]._max_range - agent.sensors[0].measure()  # [batch_dim, n_lidar_rays]        
+        package_obs = []
         for package in self.packages:
-            # Calculate distance to goal
-            package.dist_to_goal = torch.linalg.vector_norm(package.state.pos - package.goal.state.pos, dim=1)
-            package.on_goal = self.world.is_overlapping(package, package.goal)
+            package_obs.append(package.state.pos - package.goal.state.pos)
+            package_obs.append(package.state.pos - agent.state.pos)
+            package_obs.append(package.state.vel)
+            package_obs.append(package.on_goal.unsqueeze(-1))
 
-            # Color packages based on goal status
-            package.color = torch.tensor(Color.RED.value, device=self.world.device, dtype=torch.float32).repeat(self.world.batch_dim, 1)
-            package.color[package.on_goal] = torch.tensor(Color.GREEN.value, device=self.world.device, dtype=torch.float32)
-
-            # Initialize counter for agents within the zone
-            # agents_in_zone = torch.zeros(self.world.batch_dim, device=self.world.device)
-
-            # for agent in self.world.agents:
-            agent_to_package_dist = torch.linalg.vector_norm(agent.state.pos - package.state.pos, dim=1)
-
-            # **Reward and Penalize Based on Zone**
-            # Determine if agent is within zone
-            # in_zone = agent_to_package_dist < zone_radius
-            # agents_in_zone += in_zone.float()
-
-            # Calculate contribution for agents within the zone
-            # if in_zone.any():
-            #     # Reward based on motion towards the goal
-            #     contribution_reward = team_contribution_coeff * (1 - agent_to_package_dist / zone_radius)
-            #     self.rew[in_zone] += contribution_reward[in_zone]
-            # else:
-            #     # Penalize agents outside the zone
-            #     self.rew += outside_zone_penalty
-
-            # Goal bonus and step penalty
-            rew += torch.exp(-package.dist_to_goal)
-            rew += torch.exp(-agent_to_package_dist)
-            rew += goal_bonus * package.on_goal.float()
-            rew += step_penalty
-
-        return rew
-
-    # def reward(self, agent: Agent):
-    # # Initialize per-agent rewards if not already done
-    #     if not hasattr(self, 'per_agent_rew'):
-    #         self.per_agent_rew = torch.zeros(
-    #             (self.world.batch_dim, len(self.world.agents)), 
-    #             device=self.world.device, 
-    #             dtype=torch.float32
-    #         )
-        
-    #     # Compute rewards only once per timestep
-    #     is_first = agent == self.world.agents[0]
-    #     if is_first:
-    #         # Reset per-agent rewards
-    #         self.per_agent_rew.zero_()
-            
-    #         # Define constants
-    #         goal_bonus = 100.0
-    #         collision_penalty = -1.0
-    #         proximity_reward_coeff = 10.0
-    #         team_contribution_coeff = 50.0
-    #         step_penalty = -1
-    #         zone_radius = 0.5
-    #         outside_zone_penalty = -5.0
-
-    #         for package in self.packages:
-    #             package.dist_to_goal = torch.linalg.vector_norm(
-    #                 package.state.pos - package.goal.state.pos, dim=1
-    #             )
-    #             package.on_goal = self.world.is_overlapping(package, package.goal)
-                
-    #             # Color packages based on goal status
-    #             package.color = torch.tensor(
-    #                 Color.RED.value, device=self.world.device, dtype=torch.float32
-    #             ).repeat(self.world.batch_dim, 1)
-    #             package.color[package.on_goal] = torch.tensor(
-    #                 Color.GREEN.value, device=self.world.device, dtype=torch.float32
-    #             )
-                
-    #             for idx, agent in enumerate(self.world.agents):
-    #                 agent_to_package_dist = torch.linalg.vector_norm(
-    #                     agent.state.pos - package.state.pos, dim=1
-    #                 )
-
-    #                 in_zone = agent_to_package_dist < zone_radius
-    #                 # Reward for agents within the zone
-    #                 contribution_reward = torch.zeros(self.world.batch_dim, device=self.world.device)
-    #                 contribution_reward[in_zone] = team_contribution_coeff * (
-    #                     1 - agent_to_package_dist[in_zone] / zone_radius
-    #                 )
-    #                 self.per_agent_rew[:, idx] += contribution_reward
-
-    #                 # Penalty for agents outside the zone
-    #                 self.per_agent_rew[:, idx] += (~in_zone).float() * outside_zone_penalty
-
-    #             # Add goal bonus to all agents if package is on goal
-    #             if package.on_goal.any():
-    #                 self.per_agent_rew += goal_bonus * package.on_goal.float().unsqueeze(-1)
-                
-    #             # Step penalty for all agents
-    #             self.per_agent_rew += step_penalty
-
-    #     # Return per-agent rewards
-    #     agent_idx = self.world.agents.index(agent)
-    #     return self.per_agent_rew[:, agent_idx]
+        return torch.cat(
+            [
+                agent.state.pos,
+                agent.state.vel,
+                # *package_obs,
+                lidar_measurements if self.use_lidar else torch.tensor([], device=self.world.device),
+            ],
+            dim=-1,
+        )
 
 
 
     def done(self):
-        # Check if all packages are on goal
-        all_on_goal = torch.all(
-            torch.stack([package.on_goal for package in self.packages], dim=1), dim=-1
+        return torch.all(
+            torch.stack(
+                [package.on_goal for package in self.packages],
+                dim=1,
+            ),
+            dim=-1,
         )
-        return all_on_goal.to(self.world.device)  # Return termination status
-
+        
     def set_walls(self, enable: bool, num_walls: int = 0):
         self.enable_walls = enable
         self.num_walls = num_walls

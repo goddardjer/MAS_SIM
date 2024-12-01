@@ -17,7 +17,7 @@ class Scenario(BaseScenario):
         self.n_packages = kwargs.pop("n_packages", 1)
         self.package_width = kwargs.pop("package_width", 0.15)
         self.package_length = kwargs.pop("package_length", 0.15)
-        self.package_mass = kwargs.pop("package_mass", 50)
+        self.package_mass = kwargs.pop("package_mass", 5)
         ScenarioUtils.check_kwargs_consumed(kwargs)
 
         self.shaping_factor = 100
@@ -188,6 +188,10 @@ class Scenario(BaseScenario):
             ),
             dim=-1,
         )
+
+
+    def pre_step(self, agents):
+        pass
 
 
 class HeuristicPolicy(BaseHeuristicPolicy):
