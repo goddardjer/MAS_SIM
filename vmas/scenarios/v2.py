@@ -17,7 +17,7 @@ class Scenario(BaseScenario):
         self.package_length = kwargs.pop("package_length", 0.15)
         self.package_mass = kwargs.pop("package_mass", 3)
         self.use_lidar = kwargs.pop("use_lidar", True)
-        self.n_lidar_rays = kwargs.pop("n_lidar_rays", 36)
+        self.n_lidar_rays = kwargs.pop("n_lidar_rays", 72)
         self.lidar_range = kwargs.pop("lidar_range", 2.0)
         self.world_semidim = kwargs.pop("world_semidim", 1.5)
         self.agent_radius = kwargs.pop("agent_radius", 0.02)
@@ -240,6 +240,7 @@ class Scenario(BaseScenario):
             [
                 agent.state.pos,
                 agent.state.vel,
+                package.goal.state.pos,
                 # *package_obs,
                 lidar_measurements if self.use_lidar else torch.tensor([], device=self.world.device),
             ],
