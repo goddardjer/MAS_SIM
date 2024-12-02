@@ -26,7 +26,7 @@ class Scenario(BaseScenario):
         self.shaping_factor = 50
         self.agent_shaping_factor = 20
         self.goal_bonus = 100.0
-        self.energy_coeff = 0.075
+        self.energy_coeff = 0.5
         self.energy_rew = torch.zeros(batch_dim, device=device)
         self.reward_dict = {}
 
@@ -177,7 +177,7 @@ class Scenario(BaseScenario):
             
     def reward(self, agent: Agent):
         step_penalty = -0.5
-
+        
         is_first = agent == self.world.agents[0]
 
         if is_first:
@@ -214,10 +214,21 @@ class Scenario(BaseScenario):
                 )
                 package.global_shaping = package_shaping
 
+                self.energy_rew = self.energy_coeff * -torch.stack(
+                [
+                    torch.linalg.vector_norm(a.action.u, dim=-1)
+                    / math.sqrt(self.world.dim_p * ((a.u_range * a.u_multiplier) ** 2))
+                    for a in self.world.agents
+                ],
+                dim=1,
+                ).sum(-1)
+
                 self.rew += self.goal_bonus * package.on_goal.float()
+                self.rew += self.energy_rew
 
         agent_shaping = agent.dist_to_package * self.agent_shaping_factor
         rew = agent.global_shaping - agent_shaping #+ step_penalty
+        # rew += self.energy_rew
         agent.global_shaping = agent_shaping
 
         # self.rew += step_penalty

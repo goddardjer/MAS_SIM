@@ -8,7 +8,7 @@ from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 device = torch.device("cpu")
 vmas_device = device
 
-max_steps = 150
+max_steps = 1500
 scenario_name = "v2"
 n_agents =5
 num_vmas_envs = 1
@@ -64,7 +64,7 @@ policy = ProbabilisticActor(
     log_prob_key=("agents", "sample_log_prob"),
 )
 
-policy.load_state_dict(torch.load('policy.pth', map_location=device))
+policy.load_state_dict(torch.load('v2/policy.pth', map_location=device))
 
 with torch.no_grad():
     env.rollout(

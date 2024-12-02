@@ -9,7 +9,7 @@ from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 device = torch.device("cpu")
 vmas_device = device
 
-max_steps = 150
+max_steps = 300
 scenario_name = "v2"
 n_agents = 5
 num_vmas_envs = 1

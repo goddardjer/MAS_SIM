@@ -18,7 +18,7 @@ import wandb
 
 is_fork = multiprocessing.get_start_method() == "fork"
 device = (
-    torch.device(0)
+    torch.device(1)
     if torch.cuda.is_available() and not is_fork
     else torch.device("cpu")
 )
@@ -26,7 +26,7 @@ vmas_device = device  # The device where the simulator is run (VMAS can run on G
 
 # Sampling
 frames_per_batch = 100000  # Number of team frames collected per training iteration
-n_iters = 5  # Number of sampling and training iterations
+n_iters = 50  # Number of sampling and training iterations
 total_frames = frames_per_batch * n_iters
 
 # Training
@@ -191,7 +191,7 @@ wandb.init(
     entity="multiagent-ppo-team4",
     project="multi-agent-ppo",
     group='new',
-    name=f"run-{scenario_name}-{n_agents}-agents-actor_centralized-{actor_centralized}-crtic_centralized-{share_parameters_critic}-mappo-{mappo}",
+    name=f"run-{scenario_name}-{n_agents}-agents-actor_centralized-{actor_centralized}-crtic_centralized-{share_parameters_critic}", #-mappo-{mappo}",
     config={
     'frames_per_batch': frames_per_batch,
     'n_iters': n_iters,
@@ -297,7 +297,7 @@ for i, tensordict_data in enumerate(collector):
         'avg_grad_norm': avg_grad_norm,
     }, step=i)
 
-torch.save(policy.state_dict(), 'policy.pth')
+torch.save(policy.state_dict(), 'epolicy.pth')
 
 plt.plot(episode_reward_mean_list)
 plt.xlabel("Training iterations")
