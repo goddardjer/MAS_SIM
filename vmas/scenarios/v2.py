@@ -224,7 +224,6 @@ class Scenario(BaseScenario):
 
         return self.rew + rew
 
-
     def observation(self, agent: Agent):
         # Lidar readings
         if self.use_lidar:
@@ -247,8 +246,6 @@ class Scenario(BaseScenario):
             dim=-1,
         )
 
-
-
     def done(self):
         return torch.all(
             torch.stack(
@@ -265,7 +262,6 @@ class Scenario(BaseScenario):
     def pre_step(self, agents):
         # Pre-step logic if needed
         pass
-
 
 if __name__ == "__main__":
     render_interactively(__file__, control_two_agents=True)

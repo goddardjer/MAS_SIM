@@ -81,6 +81,8 @@ print("Shape of the rollout TensorDict:", rollout.batch_size)
 
 share_parameters_policy = True
 
+actor_centralized = False
+
 policy_net = torch.nn.Sequential(
     MultiAgentMLP(
         n_agent_inputs=env.observation_spec["agents", "observation"].shape[
@@ -88,7 +90,7 @@ policy_net = torch.nn.Sequential(
         ],  # n_obs_per_agent
         n_agent_outputs=2 * env.action_spec.shape[-1],  # 2 * n_actions_per_agents
         n_agents=env.n_agents,
-        centralised=False,  # the policies are decentralised (ie each agent will act from its observation)
+        centralised=actor_centralized,  # the policies are decentralised (ie each agent will act from its observation)
         share_params=share_parameters_policy,
         device=device,
         depth=2,
@@ -189,7 +191,7 @@ wandb.init(
     entity="multiagent-ppo-team4",
     project="multi-agent-ppo",
     group='new',
-    name=f"run-{scenario_name}-{n_agents}-agents",
+    name=f"run-{scenario_name}-{n_agents}-agents-actor_centralized-{actor_centralized}-crtic_centralized-{share_parameters_critic}-mappo-{mappo}",
     config={
     'frames_per_batch': frames_per_batch,
     'n_iters': n_iters,
