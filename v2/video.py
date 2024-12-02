@@ -1,4 +1,5 @@
 import torch
+import imageio
 from tensordict.nn import TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.envs import RewardSum, TransformedEnv
@@ -10,7 +11,7 @@ vmas_device = device
 
 max_steps = 150
 scenario_name = "v2"
-n_agents =5
+n_agents = 5
 num_vmas_envs = 1
 
 env = VmasEnv(
@@ -66,11 +67,19 @@ policy = ProbabilisticActor(
 
 policy.load_state_dict(torch.load('policy.pth', map_location=device))
 
+frames = []
+
+def capture_frame(env, _):
+    frame = env.render(mode='rgb_array')  
+    frames.append(frame)  
+
 with torch.no_grad():
     env.rollout(
         max_steps=max_steps,
         policy=policy,
-        callback=lambda env, _: env.render(),
+        callback=capture_frame,  
         auto_cast_to_device=True,
         break_when_any_done=False,
     )
+
+imageio.mimsave('eval_video.mp4', frames, fps=15)

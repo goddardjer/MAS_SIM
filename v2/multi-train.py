@@ -14,6 +14,7 @@ from torchrl.objectives import ClipPPOLoss, ValueEstimators
 # torch.manual_seed(0)
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+import wandb 
 
 is_fork = multiprocessing.get_start_method() == "fork"
 device = (
@@ -25,7 +26,7 @@ vmas_device = device  # The device where the simulator is run (VMAS can run on G
 
 # Sampling
 frames_per_batch = 100000  # Number of team frames collected per training iteration
-n_iters = 25  # Number of sampling and training iterations
+n_iters = 5  # Number of sampling and training iterations
 total_frames = frames_per_batch * n_iters
 
 # Training
@@ -183,10 +184,37 @@ loss_module.make_value_estimator(
 GAE = loss_module.value_estimator
 
 optim = torch.optim.Adam(loss_module.parameters(), lr)
+
+wandb.init(
+    entity="multiagent-ppo-team4",
+    project="multi-agent-ppo",
+    group='new',
+    name=f"run-{scenario_name}-{n_agents}-agents",
+    config={
+    'frames_per_batch': frames_per_batch,
+    'n_iters': n_iters,
+    'total_frames': total_frames,
+    'num_epochs': num_epochs,
+    'minibatch_size': minibatch_size,
+    'lr': lr,
+    'max_grad_norm': max_grad_norm,
+    'clip_epsilon': clip_epsilon,
+    'gamma': gamma,
+    'lmbda': lmbda,
+    'entropy_eps': entropy_eps,
+    'max_steps': max_steps,
+    'num_vmas_envs': num_vmas_envs,
+    'scenario_name': scenario_name,
+    'n_agents': n_agents,
+    'share_parameters_policy': share_parameters_policy,
+    'share_parameters_critic': share_parameters_critic,
+    'mappo': mappo,
+})
+
 pbar = tqdm(total=n_iters, desc="episode_reward_mean = 0")
 
 episode_reward_mean_list = []
-for tensordict_data in collector:
+for i, tensordict_data in enumerate(collector):
     tensordict_data.set(
         ("next", "agents", "done"),
         tensordict_data.get(("next", "done"))
@@ -211,6 +239,12 @@ for tensordict_data in collector:
     data_view = tensordict_data.reshape(-1)  # Flatten the batch size to shuffle data
     replay_buffer.extend(data_view)
 
+    total_loss_objective = 0.0
+    total_loss_critic = 0.0
+    total_loss_entropy = 0.0
+    total_grad_norm = 0.0
+    total_num_updates = 0
+
     for _ in range(num_epochs):
         for _ in range(frames_per_batch // minibatch_size):
             subdata = replay_buffer.sample()
@@ -224,14 +258,25 @@ for tensordict_data in collector:
 
             loss_value.backward()
 
-            torch.nn.utils.clip_grad_norm_(
+            grad_norm = torch.nn.utils.clip_grad_norm_(
                 loss_module.parameters(), max_grad_norm
             )  # Optional
 
             optim.step()
             optim.zero_grad()
 
+            total_loss_objective += loss_vals["loss_objective"].item()
+            total_loss_critic += loss_vals["loss_critic"].item()
+            total_loss_entropy += loss_vals["loss_entropy"].item()
+            total_grad_norm += grad_norm
+            total_num_updates += 1
+
     collector.update_policy_weights_()
+
+    avg_loss_objective = total_loss_objective / total_num_updates
+    avg_loss_critic = total_loss_critic / total_num_updates
+    avg_loss_entropy = total_loss_entropy / total_num_updates
+    avg_grad_norm = total_grad_norm / total_num_updates
 
     # Logging
     done = tensordict_data.get(("next", "agents", "done"))
@@ -242,6 +287,14 @@ for tensordict_data in collector:
     pbar.set_description(f"episode_reward_mean = {episode_reward_mean}", refresh=False)
     pbar.update()
 
+    wandb.log({
+        'episode_reward_mean': episode_reward_mean,
+        'avg_loss_objective': avg_loss_objective,
+        'avg_loss_critic': avg_loss_critic,
+        'avg_loss_entropy': avg_loss_entropy,
+        'avg_grad_norm': avg_grad_norm,
+    }, step=i)
+
 torch.save(policy.state_dict(), 'policy.pth')
 
 plt.plot(episode_reward_mean_list)
@@ -250,14 +303,13 @@ plt.ylabel("Reward")
 plt.title("Episode reward mean")
 plt.show()
 
-with torch.no_grad():
-   env.rollout(
-       max_steps=max_steps,
-       policy=policy,
-       callback=lambda env, _: env.render(),
-       auto_cast_to_device=True,
-       break_when_any_done=False,
-   )
+wandb.finish()
 
-
-
+# with torch.no_grad():
+#    env.rollout(
+#        max_steps=max_steps,
+#        policy=policy,
+#        callback=lambda env, _: env.render(),
+#        auto_cast_to_device=True,
+#        break_when_any_done=False,
+#    )
