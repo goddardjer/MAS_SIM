@@ -1,105 +1,76 @@
 import torch
-from vmas import make_env
-from model import Actor  # Import only the actor
-import warnings
-from vmas.simulator.utils import save_video
-import cv2
+from tensordict.nn import TensorDictModule
+from tensordict.nn.distributions import NormalParamExtractor
+from torchrl.envs import RewardSum, TransformedEnv
+from torchrl.envs.libs.vmas import VmasEnv
+from torchrl.modules import MultiAgentMLP, ProbabilisticActor, TanhNormal
 
-warnings.filterwarnings("ignore")
+device = torch.device("cpu")
+vmas_device = device
 
-def visualize(
-    env_name='v2',
-    n_agents=3,  # Set to desired number of agents for evaluation
-    device='cuda' if torch.cuda.is_available() else 'cpu',
-    save_render=True,
-    filename='evaluation_video',
-    max_steps=500,
-    use_lidar=True,
-    n_lidar_rays=15,
-    n_packages=1,
-):
-    # Create the environment with the desired number of agents
-    env = make_env(
-        scenario=env_name,
-        num_envs=1,
+max_steps = 150
+scenario_name = "v2"
+n_agents =5
+num_vmas_envs = 1
+
+env = VmasEnv(
+    scenario=scenario_name,
+    num_envs=num_vmas_envs,
+    continuous_actions=True,
+    max_steps=max_steps,
+    device=vmas_device,
+    n_agents=n_agents,
+)
+
+env = TransformedEnv(
+    env,
+    RewardSum(in_keys=[env.reward_key], out_keys=[("agents", "episode_reward")]),
+)
+
+share_parameters_policy = True
+
+policy_net = torch.nn.Sequential(
+    MultiAgentMLP(
+        n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1],
+        n_agent_outputs=2 * env.action_spec.shape[-1],
+        n_agents=env.n_agents,
+        centralised=False,
+        share_params=share_parameters_policy,
         device=device,
-        continuous_actions=True,
-        n_agents=n_agents,
-        use_lidar=use_lidar,
-        n_lidar_rays=n_lidar_rays,
-        n_packages=n_packages,
+        depth=2,
+        num_cells=256,
+        activation_class=torch.nn.Tanh,
+    ),
+    NormalParamExtractor(),
+)
+
+policy_module = TensorDictModule(
+    policy_net,
+    in_keys=[("agents", "observation")],
+    out_keys=[("agents", "loc"), ("agents", "scale")],
+)
+
+policy = ProbabilisticActor(
+    module=policy_module,
+    spec=env.unbatched_action_spec,
+    in_keys=[("agents", "loc"), ("agents", "scale")],
+    out_keys=[env.action_key],
+    distribution_class=TanhNormal,
+    distribution_kwargs={
+        "low": env.unbatched_action_spec[env.action_key].space.low,
+        "high": env.unbatched_action_spec[env.action_key].space.high,
+    },
+    return_log_prob=True,
+    log_prob_key=("agents", "sample_log_prob"),
+)
+
+policy.load_state_dict(torch.load('policy.pth', map_location=device))
+
+with torch.no_grad():
+    env.rollout(
+        max_steps=max_steps,
+        policy=policy,
+        callback=lambda env, _: env.render(),
+        auto_cast_to_device=True,
+        break_when_any_done=False,
     )
-
-    # Dynamically get observation and action sizes from the environment
-    obs_size = env.observation_space[0].shape[0]
-    action_size = env.action_space[0].shape[0]
-    print(f"Observation Size: {obs_size}, Action Size: {action_size}")
-
-    # Initialize the actor model (no need for critic during evaluation)
-    actor_model = Actor(obs_size, action_size, hidden_size=128).to(device)
-
-    # Load the trained model's actor state dict
-    checkpoint = torch.load('ppo_feedforward_model_best.pth', map_location=device)
-    actor_model.load_state_dict(checkpoint['actor'])
-    actor_model.eval()
-
-    # Reset the environment
-    current_obs = env.reset()
-    current_obs = torch.cat(current_obs, dim=0).to(device)  # Shape: [n_agents, obs_size]
-
-    frame_list = []  # List to store frames for video
-    step = 0
-    done = False
-
-    while not done and step < max_steps:
-        with torch.no_grad():
-            # Forward pass through the actor to get action distribution
-            dist = actor_model(current_obs)
-            action = dist.sample()
-            
-            # Clamp actions to the valid range [-1.0, 1.0]
-            action = torch.clamp(action, -1.0, 1.0)
-
-        # Prepare actions for environment
-        actions_list = [action[i].unsqueeze(0) for i in range(n_agents)]
-
-        # Step environment
-        obs_next, reward, done, info = env.step(actions_list)
-
-        # Render the environment and collect frames
-        frame = env.render(mode='rgb_array', visualize_when_rgb=False)
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame_list.append(frame_bgr)
-
-        # Display the frame live using OpenCV
-        cv2.imshow("Simulation", frame_bgr)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit visualization
-            break
-
-        # Prepare for the next step
-        current_obs = torch.cat(obs_next, dim=0).to(device)
-
-        # Check if done is already a tensor and adjust if needed
-        if isinstance(done, (list, tuple)):
-            done = torch.cat(done, dim=0).float().to(device)
-        else:
-            done = done.float().to(device)
-
-        # Break loop if all agents are done
-        if done.all():
-            break
-
-        step += 1
-
-    # Save the video
-    if save_render:
-        # Handle cases where env.scenario.world.dt might not exist
-        fps = 5 / env.scenario.world.dt if hasattr(env.scenario.world, 'dt') else 5
-        save_video(filename, frame_list, fps=fps)
-        print(f"Video saved as {filename}")
-
-    # Release OpenCV window
-    cv2.destroyAllWindows()
-
-if __name__ == '__main__':
-    visualize()
