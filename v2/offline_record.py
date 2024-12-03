@@ -14,6 +14,17 @@ scenario_name = "v2"
 n_agents = 5
 num_vmas_envs = 1
 
+# Observation settings
+use_goal_obs = True
+use_package_obs = False
+use_other_agent_obs = False
+use_lidar = True
+
+# Reward settings
+use_package_shaping = True
+use_agent_shaping = True
+use_contribution = False
+
 env = VmasEnv(
     scenario=scenario_name,
     num_envs=num_vmas_envs,
@@ -21,6 +32,13 @@ env = VmasEnv(
     max_steps=max_steps,
     device=vmas_device,
     n_agents=n_agents,
+    use_goal_obs = use_goal_obs,
+    use_package_obs = use_package_obs,
+    use_other_agent_obs = use_other_agent_obs,
+    use_lidar = use_lidar,
+    use_package_shaping = use_package_shaping,
+    use_agent_shaping = use_agent_shaping,
+    use_contribution = use_contribution,
 )
 
 env = TransformedEnv(
@@ -65,21 +83,24 @@ policy = ProbabilisticActor(
     log_prob_key=("agents", "sample_log_prob"),
 )
 
-policy.load_state_dict(torch.load('policy.pth', map_location=device))
+# policy.load_state_dict(torch.load(f"../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt", map_location=device))
+policy.load_state_dict(torch.load(f"../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt", map_location=device))
 
 frames = []
 
 def capture_frame(env, _):
-    frame = env.render(mode='rgb_array')  
-    frames.append(frame)  
+    frame = env.render(mode='rgb_array')
+    frames.append(frame)
 
 with torch.no_grad():
     env.rollout(
         max_steps=max_steps,
         policy=policy,
-        callback=capture_frame,  
+        callback=capture_frame,
         auto_cast_to_device=True,
         break_when_any_done=False,
     )
 
-imageio.mimsave('eval_video.mp4', frames, fps=15)
+# imageio.mimsave(f"../logs/videos/obs/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.mp4", frames, fps=15)
+# imageio.mimsave(f"../logs/videos/rew/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.mp4", frames, fps=15)
+imageio.mimsave(f"../logs/videos/ours/Ours_agents-{n_agents}.mp4", frames, fps=15)
