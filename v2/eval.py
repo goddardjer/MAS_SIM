@@ -13,10 +13,16 @@ scenario_name = "v2"
 n_agents = 5
 num_vmas_envs = 1
 
+# Observation settings
 use_goal_obs = True
 use_package_obs = False
 use_other_agent_obs = False
 use_lidar = True
+
+# Reward settings
+use_package_shaping = True
+use_agent_shaping = False
+use_contribution = False
 
 env = VmasEnv(
     scenario=scenario_name,
@@ -29,6 +35,9 @@ env = VmasEnv(
     use_package_obs = use_package_obs,
     use_other_agent_obs = use_other_agent_obs,
     use_lidar = use_lidar,
+    use_package_shaping = use_package_shaping,
+    use_agent_shaping = use_agent_shaping,
+    use_contribution = use_contribution,
 )
 
 env = TransformedEnv(

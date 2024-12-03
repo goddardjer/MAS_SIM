@@ -48,10 +48,16 @@ num_vmas_envs = (
 scenario_name = "v2"
 n_agents = 3
 
+# Observation settings
 use_goal_obs = True
 use_package_obs = False
 use_other_agent_obs = False
 use_lidar = True
+
+# Reward settings
+use_package_shaping = True
+use_agent_shaping = False
+use_contribution = False
 
 env = VmasEnv(
     scenario=scenario_name,
@@ -65,6 +71,9 @@ env = VmasEnv(
     use_package_obs = use_package_obs,
     use_other_agent_obs = use_other_agent_obs,
     use_lidar = use_lidar,
+    use_package_shaping = use_package_shaping,
+    use_agent_shaping = use_agent_shaping,
+    use_contribution = use_contribution,
 )
 
 print("action_spec:", env.full_action_spec)
@@ -199,8 +208,8 @@ optim = torch.optim.Adam(loss_module.parameters(), lr)
 wandb.init(
     entity="multiagent-ppo-team4",
     project="multi-agent-ppo",
-    group='obs_exps',
-    name=f"goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours",
+    group='rew_exps',
+    name=f"G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours",
     config={
     'frames_per_batch': frames_per_batch,
     'n_iters': n_iters,
@@ -306,8 +315,8 @@ for i, tensordict_data in enumerate(collector):
         'avg_grad_norm': avg_grad_norm,
     }, step=i)
 
-torch.save(policy.state_dict(), f'../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt')
-print(f"Policy saved at ../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt")
+torch.save(policy.state_dict(), f'../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt')
+print(f"Policy saved at ../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt")
 
 # plt.plot(episode_reward_mean_list)
 # plt.xlabel("Training iterations")

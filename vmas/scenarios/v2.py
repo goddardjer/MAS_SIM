@@ -26,6 +26,10 @@ class Scenario(BaseScenario):
         self.use_package_obs = kwargs.pop("use_package_obs", False)
         self.use_other_agent_obs = kwargs.pop("use_other_agent_obs", False)
         self.use_goal_obs = kwargs.pop("use_goal_obs", True)
+        self.use_package_shaping = kwargs.pop("use_package_shaping", True)
+        self.use_agent_shaping = kwargs.pop("use_agent_shaping", True)
+        self.use_contribution = kwargs.pop("use_contribution", False)
+
         self.shaping_factor = 50
         self.agent_shaping_factor = 20
         self.goal_bonus = 100.0
@@ -208,12 +212,13 @@ class Scenario(BaseScenario):
                         a.state.pos - package.state.pos, dim=1
                     )
 
-                package_shaping = package.dist_to_goal * self.shaping_factor
-                self.rew[~package.on_goal] += (
-                    package.global_shaping[~package.on_goal]
-                    - package_shaping[~package.on_goal]
-                )
-                package.global_shaping = package_shaping
+                if self.use_package_shaping:
+                    package_shaping = package.dist_to_goal * self.shaping_factor
+                    self.rew[~package.on_goal] += (
+                        package.global_shaping[~package.on_goal]
+                        - package_shaping[~package.on_goal]
+                    )
+                    package.global_shaping = package_shaping
 
                 self.energy_rew = self.energy_coeff * -torch.stack(
                 [
@@ -227,9 +232,12 @@ class Scenario(BaseScenario):
                 self.rew += self.goal_bonus * package.on_goal.float()
                 self.rew += self.energy_rew
 
-        agent_shaping = agent.dist_to_package * self.agent_shaping_factor
-        rew = agent.global_shaping - agent_shaping
-        agent.global_shaping = agent_shaping
+        if self.use_agent_shaping:
+            agent_shaping = agent.dist_to_package * self.agent_shaping_factor
+            rew = agent.global_shaping - agent_shaping
+            agent.global_shaping = agent_shaping
+        else:
+            rew = 0
 
         return self.rew + rew
 
