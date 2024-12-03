@@ -10,8 +10,13 @@ vmas_device = device
 
 max_steps = 1500
 scenario_name = "v2"
-n_agents =5
+n_agents = 5
 num_vmas_envs = 1
+
+use_goal_obs = True
+use_package_obs = False
+use_other_agent_obs = False
+use_lidar = True
 
 env = VmasEnv(
     scenario=scenario_name,
@@ -20,6 +25,10 @@ env = VmasEnv(
     max_steps=max_steps,
     device=vmas_device,
     n_agents=n_agents,
+    use_goal_obs = use_goal_obs,
+    use_package_obs = use_package_obs,
+    use_other_agent_obs = use_other_agent_obs,
+    use_lidar = use_lidar,
 )
 
 env = TransformedEnv(
@@ -64,7 +73,7 @@ policy = ProbabilisticActor(
     log_prob_key=("agents", "sample_log_prob"),
 )
 
-policy.load_state_dict(torch.load('v2/policy.pth', map_location=device))
+policy.load_state_dict(torch.load('epolicy.pth', map_location=device))
 
 with torch.no_grad():
     env.rollout(

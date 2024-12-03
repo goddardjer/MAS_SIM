@@ -14,11 +14,11 @@ from torchrl.objectives import ClipPPOLoss, ValueEstimators
 # torch.manual_seed(0)
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-import wandb 
+import wandb
 
 is_fork = multiprocessing.get_start_method() == "fork"
 device = (
-    torch.device(1)
+    torch.device(0)
     if torch.cuda.is_available() and not is_fork
     else torch.device("cpu")
 )
@@ -48,6 +48,11 @@ num_vmas_envs = (
 scenario_name = "v2"
 n_agents = 3
 
+use_goal_obs = True
+use_package_obs = False
+use_other_agent_obs = False
+use_lidar = True
+
 env = VmasEnv(
     scenario=scenario_name,
     num_envs=num_vmas_envs,
@@ -56,6 +61,10 @@ env = VmasEnv(
     device=vmas_device,
     # Scenario kwargs
     n_agents=n_agents,  # These are custom kwargs that change for each VMAS scenario, see the VMAS repo to know more.
+    use_goal_obs = use_goal_obs,
+    use_package_obs = use_package_obs,
+    use_other_agent_obs = use_other_agent_obs,
+    use_lidar = use_lidar,
 )
 
 print("action_spec:", env.full_action_spec)
@@ -122,7 +131,7 @@ policy = ProbabilisticActor(
 )  # we'll need the log-prob for the PPO loss
 
 share_parameters_critic = True
-mappo = True  # IPPO if False
+mappo = False  # IPPO if False
 
 critic_net = MultiAgentMLP(
     n_agent_inputs=env.observation_spec["agents", "observation"].shape[-1],
@@ -190,8 +199,8 @@ optim = torch.optim.Adam(loss_module.parameters(), lr)
 wandb.init(
     entity="multiagent-ppo-team4",
     project="multi-agent-ppo",
-    group='new',
-    name=f"run-{scenario_name}-{n_agents}-agents-actor_centralized-{actor_centralized}-crtic_centralized-{share_parameters_critic}", #-mappo-{mappo}",
+    group='obs_exps',
+    name=f"goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours",
     config={
     'frames_per_batch': frames_per_batch,
     'n_iters': n_iters,
@@ -297,13 +306,14 @@ for i, tensordict_data in enumerate(collector):
         'avg_grad_norm': avg_grad_norm,
     }, step=i)
 
-torch.save(policy.state_dict(), 'epolicy.pth')
+torch.save(policy.state_dict(), f'../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt')
+print(f"Policy saved at ../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt")
 
-plt.plot(episode_reward_mean_list)
-plt.xlabel("Training iterations")
-plt.ylabel("Reward")
-plt.title("Episode reward mean")
-plt.show()
+# plt.plot(episode_reward_mean_list)
+# plt.xlabel("Training iterations")
+# plt.ylabel("Reward")
+# plt.title("Episode reward mean")
+# plt.show()
 
 wandb.finish()
 

@@ -23,12 +23,14 @@ class Scenario(BaseScenario):
         self.agent_radius = kwargs.pop("agent_radius", 0.02)
         self.enable_walls = kwargs.pop("enable_walls", False)
         self.num_walls = kwargs.pop("num_walls", 0)
+        self.use_package_obs = kwargs.pop("use_package_obs", False)
+        self.use_other_agent_obs = kwargs.pop("use_other_agent_obs", False)
+        self.use_goal_obs = kwargs.pop("use_goal_obs", True)
         self.shaping_factor = 50
         self.agent_shaping_factor = 20
         self.goal_bonus = 100.0
-        self.energy_coeff = 0.5
+        self.energy_coeff = 0.1
         self.energy_rew = torch.zeros(batch_dim, device=device)
-        self.reward_dict = {}
 
         ScenarioUtils.check_kwargs_consumed(kwargs)
 
@@ -101,7 +103,7 @@ class Scenario(BaseScenario):
         return world
 
     def reset_world_at(self, env_index: int = None):
-        
+
         # Spawn agents
         ScenarioUtils.spawn_entities_randomly(
             self.world.agents,
@@ -122,7 +124,7 @@ class Scenario(BaseScenario):
         # Spawn goal
         goal = self.world.landmarks[0]
         ScenarioUtils.spawn_entities_randomly(
-            [goal], 
+            [goal],
             self.world,
             env_index,
             min_dist_between_entities=max(
@@ -174,10 +176,9 @@ class Scenario(BaseScenario):
                         agent.state.pos[env_index] - self.packages[0].state.pos[env_index]
                     ) * self.agent_shaping_factor
                 )
-            
+
     def reward(self, agent: Agent):
-        step_penalty = -0.5
-        
+
         is_first = agent == self.world.agents[0]
 
         if is_first:
@@ -227,31 +228,47 @@ class Scenario(BaseScenario):
                 self.rew += self.energy_rew
 
         agent_shaping = agent.dist_to_package * self.agent_shaping_factor
-        rew = agent.global_shaping - agent_shaping #+ step_penalty
-        # rew += self.energy_rew
+        rew = agent.global_shaping - agent_shaping
         agent.global_shaping = agent_shaping
-
-        # self.rew += step_penalty
 
         return self.rew + rew
 
     def observation(self, agent: Agent):
         # Lidar readings
         if self.use_lidar:
-            lidar_measurements = agent.sensors[0]._max_range - agent.sensors[0].measure()  # [batch_dim, n_lidar_rays]        
-        package_obs = []
-        for package in self.packages:
-            package_obs.append(package.state.pos - package.goal.state.pos)
-            package_obs.append(package.state.pos - agent.state.pos)
-            package_obs.append(package.state.vel)
-            package_obs.append(package.on_goal.unsqueeze(-1))
+            lidar_measurements = agent.sensors[0]._max_range - agent.sensors[0].measure()  # [batch_dim, n_lidar_rays]
+
+        if self.use_package_obs:
+            package_obs = []
+            for package in self.packages:
+                package_obs.append(package.state.pos - package.goal.state.pos)
+                package_obs.append(package.state.pos - agent.state.pos)
+                package_obs.append(package.state.vel)
+                package_obs.append(package.on_goal.unsqueeze(-1))
+            package_obs = torch.cat(package_obs, dim=-1)
+
+        if self.use_other_agent_obs:
+            other_agent_obs = []
+            for other_agent in self.world.agents:
+                if other_agent == agent:
+                    continue
+                other_agent_obs.append(other_agent.state.pos)
+                other_agent_obs.append(other_agent.state.vel)
+            other_agent_obs = torch.cat(other_agent_obs, dim=-1)
+
+        if self.use_goal_obs:
+            goal_obs = []
+            for package in self.packages:
+                goal_obs.append(package.goal.state.pos)
+            goal_obs = torch.cat(goal_obs, dim=-1)
 
         return torch.cat(
             [
                 agent.state.pos,
                 agent.state.vel,
-                package.goal.state.pos,
-                # *package_obs,
+                goal_obs if self.use_goal_obs else torch.tensor([], device=self.world.device),
+                package_obs if self.use_package_obs else torch.tensor([], device=self.world.device),
+                other_agent_obs if self.use_other_agent_obs else torch.tensor([], device=self.world.device),
                 lidar_measurements if self.use_lidar else torch.tensor([], device=self.world.device),
             ],
             dim=-1,
@@ -265,7 +282,7 @@ class Scenario(BaseScenario):
             ),
             dim=-1,
         )
-        
+
     def set_walls(self, enable: bool, num_walls: int = 0):
         self.enable_walls = enable
         self.num_walls = num_walls
