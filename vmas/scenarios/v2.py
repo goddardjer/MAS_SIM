@@ -10,8 +10,8 @@ from vmas.simulator.utils import Color, ScenarioUtils
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs):
         # Default parameters
-        n_agents = kwargs.pop("n_agents", 4)
         capacity = kwargs.pop("capacity", 1)
+        self.n_agents = kwargs.pop("n_agents", 4)
         self.n_packages = kwargs.pop("n_packages", 1)
         self.package_width = kwargs.pop("package_width", 0.15)
         self.package_length = kwargs.pop("package_length", 0.15)
@@ -49,7 +49,7 @@ class Scenario(BaseScenario):
         )
 
         # Add agents
-        for i in range(n_agents):
+        for i in range(self.n_agents):
             agent = Agent(
                 name=f"agent_{i}",
                 shape=Sphere(self.agent_radius),
@@ -192,6 +192,10 @@ class Scenario(BaseScenario):
                 dtype=torch.float32,
             )
 
+            self.contribution_rew = torch.zeros((self.world.batch_dim, self.n_agents),
+                                                device=self.world.device, dtype=torch.float32)
+            self.nearby_agents = self.rew.clone()
+
             for package in self.packages:
                 package.dist_to_goal = torch.linalg.vector_norm(
                     package.state.pos - package.goal.state.pos, dim=1
@@ -207,10 +211,12 @@ class Scenario(BaseScenario):
                     device=self.world.device,
                     dtype=torch.float32,
                 )
-                for a in self.world.agents:
+                for i, a in enumerate(self.world.agents):
                     a.dist_to_package = torch.linalg.vector_norm(
                         a.state.pos - package.state.pos, dim=1
                     )
+                    self.contribution_rew[:, i] = (a.dist_to_package < 0.125).float()
+                self.nearby_agents = self.contribution_rew.sum(dim=1)
 
                 if self.use_package_shaping:
                     package_shaping = package.dist_to_goal * self.shaping_factor
@@ -230,6 +236,11 @@ class Scenario(BaseScenario):
                 ).sum(-1)
 
                 self.rew += self.goal_bonus * package.on_goal.float()
+
+                if self.use_contribution:
+                    self.contribution_rew *= (self.rew / self.nearby_agents).view(-1, 1)
+                    self.contribution_rew.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+
                 self.rew += self.energy_rew
 
         if self.use_agent_shaping:
@@ -238,6 +249,11 @@ class Scenario(BaseScenario):
             agent.global_shaping = agent_shaping
         else:
             rew = 0
+
+        if self.use_contribution:
+            # Get the contribution of the agent to the reward
+            rew += self.contribution_rew[:, self.world.agents.index(agent)]
+            return self.energy_rew + rew
 
         return self.rew + rew
 
