@@ -56,7 +56,7 @@ use_lidar = True
 
 # Reward settings
 use_package_shaping = True
-use_agent_shaping = False
+use_agent_shaping = True
 use_contribution = False
 
 env = VmasEnv(
@@ -209,6 +209,7 @@ wandb.init(
     entity="multiagent-ppo-team4",
     project="multi-agent-ppo",
     group='rew_exps',
+    # name=f"goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours",
     name=f"G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours",
     config={
     'frames_per_batch': frames_per_batch,
@@ -315,6 +316,8 @@ for i, tensordict_data in enumerate(collector):
         'avg_grad_norm': avg_grad_norm,
     }, step=i)
 
+# torch.save(policy.state_dict(), f"../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt")
+# print(f"Policy saved at ../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt")
 torch.save(policy.state_dict(), f'../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt')
 print(f"Policy saved at ../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt")
 

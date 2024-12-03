@@ -14,14 +14,14 @@ n_agents = 5
 num_vmas_envs = 1
 
 # Observation settings
-use_goal_obs = True
+use_goal_obs = False
 use_package_obs = False
 use_other_agent_obs = False
 use_lidar = True
 
 # Reward settings
 use_package_shaping = True
-use_agent_shaping = False
+use_agent_shaping = True
 use_contribution = False
 
 env = VmasEnv(
@@ -82,7 +82,8 @@ policy = ProbabilisticActor(
     log_prob_key=("agents", "sample_log_prob"),
 )
 
-policy.load_state_dict(torch.load('epolicy.pth', map_location=device))
+policy.load_state_dict(torch.load(f"../logs/obs_exps/goal-{use_goal_obs}_pkg-{use_package_obs}_agt-{use_other_agent_obs}_lidar-{use_lidar}_rew-Ours.pt", map_location=device))
+# policy.load_state_dict(torch.load(f"../logs/rew_exps/G-True_Gs-{use_package_shaping}_As-{use_agent_shaping}_C-{use_contribution}_Obs-Ours.pt", map_location=device))
 
 with torch.no_grad():
     env.rollout(
